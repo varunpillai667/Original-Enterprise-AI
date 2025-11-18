@@ -20,7 +20,13 @@ This demo shows how *Original Enterprise AI* processes a CEO's question through
 # 1️⃣ CEO Question Input
 # -----------------------------------------------------------------------------
 st.subheader("Ask a strategic question:")
-question = st.text_input("Example: How can we increase steel production with minimal investment?")
+
+# Pre-filled example (editable by user)
+question = st.text_input(
+    "Strategic Query:",
+    value="How can we increase steel production with minimal investment?",
+    help="You can edit this question or run the simulation directly."
+)
 
 if st.button("Run Simulation"):
     with st.spinner("Running enterprise simulation..."):
@@ -52,11 +58,10 @@ if st.button("Run Simulation"):
             st.success(explanation)
 
         # -----------------------------------------------------------------------------
-        # 4️⃣ Data and Decision Flow (Enhanced Sankey Diagram)
+        # 4️⃣ Data and Decision Flow (Enhanced Sankey Diagram with Tooltips)
         # -----------------------------------------------------------------------------
         st.subheader("📊 Data and Decision Flow")
 
-        # Dynamic last node label (Recommendation → Plant)
         recommended = result['Recommended Plant']
         nodes = [
             "CEO Query",
@@ -66,7 +71,15 @@ if st.button("Run Simulation"):
             f"Recommendation → {recommended}"
         ]
 
-        # Define flows between nodes
+        # Hover tooltips for storytelling
+        hover_texts = [
+            "CEO sets a strategic objective or challenge.",
+            "Group Manager interprets goals and prioritizes investment areas.",
+            "Enterprise Manager analyzes operational and financial feasibility.",
+            "LOCAL Nodes simulate data-driven production outcomes.",
+            f"Final recommendation identifies optimal plant: {recommended}."
+        ]
+
         links = dict(
             source=[0, 1, 2, 3],
             target=[1, 2, 3, 4],
@@ -74,7 +87,6 @@ if st.button("Run Simulation"):
             color=["#82c4ff", "#a0d8ef", "#ffc77a", "#b2f7b2"]
         )
 
-        # Create Sankey diagram
         fig = go.Figure(data=[go.Sankey(
             node=dict(
                 pad=35,
@@ -82,12 +94,12 @@ if st.button("Run Simulation"):
                 line=dict(color="white", width=0.5),
                 label=nodes,
                 color=["#007acc", "#5ba4cf", "#ff8c42", "#ffb677", "#33cc66"],
-                hovertemplate='%{label}<extra></extra>'
+                hovertemplate='%{customdata}<extra></extra>',
+                customdata=hover_texts
             ),
             link=links
         )])
 
-        # Layout and style
         fig.update_layout(
             height=380,
             margin=dict(l=20, r=20, t=40, b=20),
