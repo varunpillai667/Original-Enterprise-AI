@@ -1,0 +1,47 @@
+	
+
+
+
+
+
+
+
+
+
+
+
+{
+  "steel_plants": [
+    {"plant_id": "SP1", "capacity": 1000, "utilization": 0.82, "capex_estimate_usd": 750000, "roi_months": 8},
+    {"plant_id": "SP2", "capacity": 1200, "utilization": 0.68, "capex_estimate_usd": 950000, "roi_months": 10},
+    {"plant_id": "SP3", "capacity": 900, "utilization": 0.91, "capex_estimate_usd": 600000, "roi_months": 7}
+  ],
+  "energy": {"available_mw": 20, "cost_per_mw_usd": 1100},
+  "ports": {"port2_capacity": 15000, "current_utilization": 0.84}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
