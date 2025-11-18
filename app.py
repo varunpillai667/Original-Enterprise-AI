@@ -1,138 +1,132 @@
-# app.py
-# Streamlit interface for the Original Enterprise AI – Group X Prototype
-
 import streamlit as st
 from decision_engine import run_simulation, explain_decision
 import plotly.graph_objects as go
 
-# -----------------------------------------------------------------------------
-# Streamlit Page Setup
-# -----------------------------------------------------------------------------
-st.set_page_config(page_title="Original Enterprise AI Prototype", layout="wide")
-
-st.title("🧠 Original Enterprise AI – Group X Prototype")
-st.markdown("""
-This demo shows how *Original Enterprise AI* processes a CEO's question through  
-**Group Manager → Enterprise Manager → LOCAL Nodes** and returns an explainable recommendation.
-""")
-
-# -----------------------------------------------------------------------------
-# 1️⃣ CEO Question Input
-# -----------------------------------------------------------------------------
-st.subheader("Ask a strategic question:")
-
-question = st.text_input(
-    "Strategic Query:",
-    value="How can we increase steel production with minimal investment?",
-    help="You can edit this question or run the simulation directly."
+# ---------------------------------------------------------------------
+# 🌟 Page Configuration
+# ---------------------------------------------------------------------
+st.set_page_config(
+    page_title="Original Enterprise AI – Group X Prototype",
+    page_icon="🧠",
+    layout="wide"
 )
 
-if st.button("Run Simulation"):
-    with st.spinner("Running enterprise simulation..."):
-        # Run the decision simulation
-        result = run_simulation()
+# ---------------------------------------------------------------------
+# 🌟 Header Section
+# ---------------------------------------------------------------------
+st.markdown(
+    """
+    <style>
+        h1, h2, h3, h4, h5, h6 { font-family: 'Inter', sans-serif; }
+        .title { text-align: center; margin-bottom: 0px; }
+        .subtitle { text-align: center; color: #555; font-size: 18px; margin-bottom: 30px; }
+        .highlight-box {
+            background-color: #f1f8ff;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 6px solid #2b8a3e;
+        }
+        .explain-box {
+            background-color: #fff8e1;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 6px solid #ffb300;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
-        # -----------------------------------------------------------------------------
-        # 2️⃣ AI Recommendation Summary
-        # -----------------------------------------------------------------------------
-        st.header("AI Recommendation Summary")
+st.markdown("<h1 class='title'>🧠 Original Enterprise AI – Group X Prototype</h1>", unsafe_allow_html=True)
+st.markdown(
+    "<p class='subtitle'>This demo shows how <b>Original Enterprise AI</b> processes a CEO's question through "
+    "<b>Group Manager → Enterprise Manager → LOCAL Nodes</b> and returns an explainable recommendation.</p>",
+    unsafe_allow_html=True
+)
 
-        st.markdown(f"**Recommended Plant:** {result['Recommended Plant']}")
-        st.markdown(f"**Expected Output Increase:** {result['Expected Output Increase']}")
-        st.markdown(f"**Capital Investment:** {result['Capital Investment']}")
-        st.markdown(f"**ROI Period:** {result['ROI Period']}")
-        st.markdown(f"**Energy Required:** {result['Energy Required']}")
+# ---------------------------------------------------------------------
+# 🧩 User Input Section
+# ---------------------------------------------------------------------
+st.header("Ask a strategic question:")
 
-        st.info(result["Summary"])
+query = st.text_input(
+    "Strategic Query:",
+    placeholder="How can we increase steel production with minimal investment?",
+)
 
-        # -----------------------------------------------------------------------------
-        # 3️⃣ Explainable AI Insight
-        # -----------------------------------------------------------------------------
-        st.subheader("💬 Explainable AI Insight")
+if st.button("Run Simulation", type="primary", use_container_width=False):
+    if query.strip() == "":
+        query = "How can we increase steel production with minimal investment?"
 
+    # Run simulation from decision_engine
+    result = run_simulation(query)
+
+    # -----------------------------------------------------------------
+    # 📊 Display Results
+    # -----------------------------------------------------------------
+    st.header("AI Recommendation Summary")
+    st.write(f"**Recommended Plant:** {result['Recommended Plant']}")
+    st.write(f"**Expected Output Increase:** {result['Expected Output Increase']}")
+    st.write(f"**Capital Investment:** {result['Capital Investment']}")
+    st.write(f"**ROI Period:** {result['ROI Period']}")
+    st.write(f"**Energy Required:** {result['Energy Required']}")
+
+    st.markdown(f"<div class='highlight-box'>{result['Summary']}</div>", unsafe_allow_html=True)
+
+    # -----------------------------------------------------------------
+    # 💬 Explainable AI Section
+    # -----------------------------------------------------------------
+    st.header("💬 Explainable AI Insight")
+
+    with st.spinner("Generating AI explanation..."):
         explanation = explain_decision(result["Summary"])
-        if "⚠️" in explanation:
-            st.warning(explanation)
-        else:
-            st.success(explanation)
 
-        # -----------------------------------------------------------------------------
-        # 4️⃣ Data and Decision Flow (Readable, Scaled & Centered)
-        # -----------------------------------------------------------------------------
-        st.subheader("📊 Data and Decision Flow")
+    st.markdown(f"<div class='explain-box'>{explanation}</div>", unsafe_allow_html=True)
 
-        recommended = result['Recommended Plant']
+    # -----------------------------------------------------------------
+    # 🔄 Data & Decision Flow (Sankey)
+    # -----------------------------------------------------------------
+    st.header("📊 Data and Decision Flow")
 
-        fig = go.Figure()
-
-        # Define block layout manually for fixed coordinate space
-        y_center = 0.5
-        block_width = 0.15
-        block_height = 0.25
-        gap = 0.04
-
-        blocks = [
-            {"x": 0.0, "color": "#007acc", "title": "CEO Query",
-             "desc": "Defines strategic objectives such as increasing steel output."},
-            {"x": 0.2, "color": "#00b4d8", "title": "Group Manager",
-             "desc": "Interprets strategy, sets enterprise targets and allocates budgets."},
-            {"x": 0.4, "color": "#ff8c42", "title": "Enterprise Manager (Steel)",
-             "desc": "Analyzes plant performance, investment options, and ROI scenarios."},
-            {"x": 0.6, "color": "#ffc300", "title": "LOCAL Nodes",
-             "desc": "Aggregate plant-level data (energy, output, cost) for modeling."},
-            {"x": 0.8, "color": "#33cc66", "title": f"Recommendation → {recommended}",
-             "desc": "Synthesizes all results and provides optimal actionable decision."}
+    fig = go.Figure(
+        data=[
+            go.Sankey(
+                node=dict(
+                    pad=40,
+                    thickness=25,
+                    line=dict(color="black", width=0.5),
+                    label=[
+                        "CEO Query",
+                        "Group Manager",
+                        "Enterprise Manager (Steel)",
+                        "LOCAL Nodes",
+                        "Recommendation"
+                    ],
+                    color=[
+                        "#2E86DE",
+                        "#54A0FF",
+                        "#FF6B6B",
+                        "#FFA07A",
+                        "#1DD1A1"
+                    ],
+                ),
+                link=dict(
+                    source=[0, 1, 2, 3],
+                    target=[1, 2, 3, 4],
+                    value=[1, 1, 1, 1],
+                    color=["rgba(0,0,0,0.1)"] * 4
+                ),
+            )
         ]
+    )
 
-        # Draw each rectangular block and its annotations
-        for b in blocks:
-            x0 = b["x"]
-            x1 = x0 + block_width
-            fig.add_shape(
-                type="rect",
-                x0=x0, y0=y_center - block_height / 2,
-                x1=x1, y1=y_center + block_height / 2,
-                line=dict(color="black", width=1.5),
-                fillcolor=b["color"], opacity=0.9
-            )
-            fig.add_annotation(
-                x=(x0 + x1) / 2, y=y_center + 0.07,
-                text=f"<b>{b['title']}</b>",
-                font=dict(size=16, color="white"),
-                showarrow=False
-            )
-            fig.add_annotation(
-                x=(x0 + x1) / 2, y=y_center - 0.05,
-                text=f"<span style='font-size:13px;color:white'>{b['desc']}</span>",
-                showarrow=False
-            )
+    fig.update_layout(
+        title_text="Enterprise Decision Flow – From Strategy to Action",
+        font=dict(size=14, color="black"),
+        height=400,
+        margin=dict(l=0, r=0, t=50, b=0),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+    )
 
-        # Draw arrows between the blocks
-        for i in range(len(blocks) - 1):
-            start_x = blocks[i]["x"] + block_width
-            end_x = blocks[i + 1]["x"]
-            fig.add_annotation(
-                ax=start_x + gap / 4, ay=y_center,
-                x=end_x - gap / 4, y=y_center,
-                xref="x", yref="y", axref="x", ayref="y",
-                showarrow=True,
-                arrowhead=3, arrowsize=2, arrowwidth=2, arrowcolor="black"
-            )
-
-        # Lock the coordinate system and remove axis visuals
-        fig.update_xaxes(range=[-0.05, 1.05], visible=False)
-        fig.update_yaxes(range=[0, 1], visible=False)
-
-        fig.update_layout(
-            height=400,
-            margin=dict(l=20, r=20, t=60, b=20),
-            paper_bgcolor="white",
-            plot_bgcolor="white",
-            title=dict(
-                text="Enterprise Decision Flow – From Strategy to Action",
-                font=dict(size=18, color="black"),
-                x=0.5
-            )
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True)
