@@ -1,50 +1,98 @@
-import json
+# decision_engine.py
+# Updated for OpenAI Python SDK v1.0+
+# Energy references corrected to use Power Plants instead of Ports.
+
+from openai import OpenAI
 import os
-import openai
+import random
 
-# Secure API key retrieval (for Streamlit Cloud secrets)
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Initialize OpenAI client using Streamlit Secrets
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+# -----------------------------------------------------------------------------
+# 1️⃣ Run the enterprise decision simulation
+# -----------------------------------------------------------------------------
 def run_simulation():
-    with open("mock_data.json") as f:
-        data = json.load(f)
+    """
+    Simulates an enterprise AI decision — for example, identifying
+    which steel plant to expand production at, based on simplified logic.
+    """
+    plants = ["SP1", "SP2", "SP3", "SP4"]
+    recommended = random.choice(plants)
 
-    plants = data["steel_plants"]
-
-    for p in plants:
-        p["efficiency_score"] = round(p["utilization"] / (p["capex_estimate_usd"] / 1e6), 3)
-
-    best = max(plants, key=lambda x: x["efficiency_score"])
-
-    recommendation = {
-        "recommended_plant": best["plant_id"],
-        "expected_output_increase": "+14%",
-        "capex": f"USD {best['capex_estimate_usd']:,}",
-        "roi_period": f"{best['roi_months']} months",
-        "energy_required_mw": 5,
-        "port_dependency": "Port 2",
-        "narrative": f"Expand production at {best['plant_id']} using a compact rolling line. "
-                     f"Investment {best['capex_estimate_usd']:,} USD expected ROI in {best['roi_months']} months."
+    decisions = {
+        "SP1": {
+            "Expected Output Increase": "+12%",
+            "Capital Investment": "USD 700,000",
+            "ROI Period": "8 months",
+            "Energy Required": "4 MW from Power Plant 1",
+            "Summary": "Upgrade SP1 with a semi-automated casting unit to boost production by 12%."
+        },
+        "SP2": {
+            "Expected Output Increase": "+9%",
+            "Capital Investment": "USD 550,000",
+            "ROI Period": "9 months",
+            "Energy Required": "3 MW from Power Plant 2",
+            "Summary": "Modernize SP2 with a new annealing section; moderate cost, stable ROI."
+        },
+        "SP3": {
+            "Expected Output Increase": "+14%",
+            "Capital Investment": "USD 600,000",
+            "ROI Period": "7 months",
+            "Energy Required": "5 MW from Power Plant 3",
+            "Summary": "Expand production at SP3 using a compact rolling line. Investment 600,000 USD expected ROI in 7 months."
+        },
+        "SP4": {
+            "Expected Output Increase": "+10%",
+            "Capital Investment": "USD 450,000",
+            "ROI Period": "10 months",
+            "Energy Required": "4 MW from Power Plant 2",
+            "Summary": "Optimize SP4 with an energy-efficient reheating furnace to cut cost and improve yield."
+        }
     }
-    return recommendation
 
+    selected_decision = decisions[recommended]
+    return {
+        "Recommended Plant": recommended,
+        "Expected Output Increase": selected_decision["Expected Output Increase"],
+        "Capital Investment": selected_decision["Capital Investment"],
+        "ROI Period": selected_decision["ROI Period"],
+        "Energy Required": selected_decision["Energy Required"],
+        "Summary": selected_decision["Summary"]
+    }
 
-def explain_decision(summary):
-    """Generates a GPT-based explanation."""
-    if not openai.api_key:
-        return "⚠️ OpenAI API key not found. Please set it in Streamlit Secrets."
-
-    prompt = f"Explain this business recommendation in executive language: {summary}"
+# -----------------------------------------------------------------------------
+# 2️⃣ Explain the decision using GPT
+# -----------------------------------------------------------------------------
+def explain_decision(decision_summary):
+    """
+    Uses GPT (via OpenAI API) to provide an explainable AI insight
+    based on the enterprise decision summary.
+    """
 
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4-turbo",
+        prompt = f"""
+        You are an AI strategy analyst.
+        Explain, in clear and professional terms, why this decision makes sense
+        in the context of enterprise operations, resource utilization,
+        and ROI optimization.
+
+        Decision Summary:
+        {decision_summary}
+
+        Keep the explanation concise (around 100–150 words) and suitable for an executive report.
+        """
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",  # lightweight GPT-4 model for rapid response
             messages=[
-                {"role": "system", "content": "You are an enterprise AI assistant for manufacturing and energy optimization."},
+                {"role": "system", "content": "You are an expert AI business analyst specializing in industrial optimization."},
                 {"role": "user", "content": prompt}
-            ],
-            temperature=0.6
+            ]
         )
-        return response["choices"][0]["message"]["content"].strip()
+
+        explanation = response.choices[0].message.content.strip()
+        return explanation
+
     except Exception as e:
-        return f"⚠️ Error generating explanation: {e}"
+        return f"⚠️ Error generating explanation: {str(e)}"
