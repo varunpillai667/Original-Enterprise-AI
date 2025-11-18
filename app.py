@@ -21,7 +21,6 @@ This demo shows how *Original Enterprise AI* processes a CEO's question through
 # -----------------------------------------------------------------------------
 st.subheader("Ask a strategic question:")
 
-# Pre-filled example (editable by user)
 question = st.text_input(
     "Strategic Query:",
     value="How can we increase steel production with minimal investment?",
@@ -58,56 +57,72 @@ if st.button("Run Simulation"):
             st.success(explanation)
 
         # -----------------------------------------------------------------------------
-        # 4️⃣ Data and Decision Flow (Enhanced Sankey Diagram with Tooltips)
+        # 4️⃣ Data and Decision Flow (Clear, Descriptive Version)
         # -----------------------------------------------------------------------------
         st.subheader("📊 Data and Decision Flow")
 
         recommended = result['Recommended Plant']
-        nodes = [
-            "CEO Query",
-            "Group Manager",
-            "Enterprise Manager (Steel)",
-            "LOCAL Nodes",
-            f"Recommendation → {recommended}"
+
+        # Create figure
+        fig = go.Figure()
+
+        # Define block properties
+        blocks = [
+            {"x0": 0.05, "x1": 0.23, "color": "#007acc", "title": "CEO Query",
+             "desc": "Defines strategic objective (e.g., increase steel production)."},
+            {"x0": 0.25, "x1": 0.43, "color": "#00b4d8", "title": "Group Manager",
+             "desc": "Interprets goal, prioritizes projects, and allocates budget."},
+            {"x0": 0.45, "x1": 0.63, "color": "#ff8c42", "title": "Enterprise Manager (Steel)",
+             "desc": "Analyzes capacity, evaluates investments, and forecasts ROI."},
+            {"x0": 0.65, "x1": 0.83, "color": "#ffc300", "title": "LOCAL Nodes",
+             "desc": "Simulate plant data (energy, output, logistics, etc.)."},
+            {"x0": 0.85, "x1": 0.98, "color": "#33cc66", "title": f"Recommendation → {recommended}",
+             "desc": "Synthesizes results and presents optimal decision."},
         ]
 
-        # Hover tooltips for storytelling
-        hover_texts = [
-            "CEO sets a strategic objective or challenge.",
-            "Group Manager interprets goals and prioritizes investment areas.",
-            "Enterprise Manager analyzes operational and financial feasibility.",
-            "LOCAL Nodes simulate data-driven production outcomes.",
-            f"Final recommendation identifies optimal plant: {recommended}."
-        ]
+        # Add rectangles (blocks)
+        for b in blocks:
+            fig.add_shape(
+                type="rect",
+                x0=b["x0"], y0=0.3, x1=b["x1"], y1=0.7,
+                line=dict(color="black", width=1.2),
+                fillcolor=b["color"],
+                opacity=0.9
+            )
+            fig.add_annotation(
+                x=(b["x0"] + b["x1"]) / 2, y=0.6,
+                text=f"<b>{b['title']}</b>",
+                showarrow=False, font=dict(size=16, color="white")
+            )
+            fig.add_annotation(
+                x=(b["x0"] + b["x1"]) / 2, y=0.42,
+                text=f"<span style='font-size:12px;color:white'>{b['desc']}</span>",
+                showarrow=False
+            )
 
-        links = dict(
-            source=[0, 1, 2, 3],
-            target=[1, 2, 3, 4],
-            value=[1, 1, 1, 1],
-            color=["#82c4ff", "#a0d8ef", "#ffc77a", "#b2f7b2"]
-        )
+        # Add arrows between blocks
+        arrow_positions = [(0.23, 0.5), (0.43, 0.5), (0.63, 0.5), (0.83, 0.5)]
+        for (x, y) in arrow_positions:
+            fig.add_annotation(
+                ax=x, ay=y, axref="x", ayref="y",
+                x=x + 0.015, y=y,
+                showarrow=True,
+                arrowhead=3, arrowsize=2, arrowwidth=2, arrowcolor="black"
+            )
 
-        fig = go.Figure(data=[go.Sankey(
-            node=dict(
-                pad=35,
-                thickness=28,
-                line=dict(color="white", width=0.5),
-                label=nodes,
-                color=["#007acc", "#5ba4cf", "#ff8c42", "#ffb677", "#33cc66"],
-                hovertemplate='%{customdata}<extra></extra>',
-                customdata=hover_texts
-            ),
-            link=links
-        )])
-
+        # Layout configuration
+        fig.update_xaxes(visible=False)
+        fig.update_yaxes(visible=False)
         fig.update_layout(
-            height=380,
-            margin=dict(l=20, r=20, t=40, b=20),
+            height=320,
+            margin=dict(l=10, r=10, t=30, b=10),
             paper_bgcolor="white",
             plot_bgcolor="white",
-            font=dict(size=14, color="black"),
-            title_font=dict(size=18, color="black", family="sans-serif"),
-            title="Enterprise Decision Flow – From Query to Action"
+            title=dict(
+                text="Enterprise Decision Flow – From Strategy to Action",
+                font=dict(size=18, color="black"),
+                x=0.5
+            )
         )
 
         st.plotly_chart(fig, use_container_width=True)
