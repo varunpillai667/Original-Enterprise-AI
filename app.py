@@ -1,18 +1,19 @@
 import streamlit as st
 from decision_engine import run_simulation, explain_decision
 import plotly.graph_objects as go
+import random
 
 # ---------------------------------------------------------------------
 # 🌟 Page Configuration
 # ---------------------------------------------------------------------
 st.set_page_config(
-    page_title="Original Enterprise AI – Group X Prototype",
-    page_icon="🧠",
+    page_title="Original Enterprise AI – Group X Prototype (Ports Integration)",
+    page_icon="🚢",
     layout="wide"
 )
 
 # ---------------------------------------------------------------------
-# 🌟 Header Section
+# 🌟 Header
 # ---------------------------------------------------------------------
 st.markdown(
     """
@@ -37,10 +38,11 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-st.markdown("<h1 class='title'>🧠 Original Enterprise AI – Group X Prototype</h1>", unsafe_allow_html=True)
+st.markdown("<h1 class='title'>🚢 Original Enterprise AI – Group X Prototype</h1>", unsafe_allow_html=True)
 st.markdown(
-    "<p class='subtitle'>This demo shows how <b>Original Enterprise AI</b> processes a CEO's question through "
-    "<b>Group Manager → Enterprise Manager → LOCAL Nodes</b> and returns an explainable recommendation.</p>",
+    "<p class='subtitle'>This demo shows how <b>Original Enterprise AI</b> processes a CEO's strategic query through "
+    "<b>Group Manager → Enterprise Manager → Port Nodes → Steel Plants</b> and returns an explainable recommendation "
+    "that aligns logistics and production.</p>",
     unsafe_allow_html=True
 )
 
@@ -51,40 +53,57 @@ st.header("Ask a strategic question:")
 
 query = st.text_input(
     "Strategic Query:",
-    placeholder="How can we increase steel production with minimal investment?",
+    placeholder="How can we increase steel production with minimal investment and port efficiency?",
 )
 
-if st.button("Run Simulation", type="primary", use_container_width=False):
+# ---------------------------------------------------------------------
+# 🧠 Run Simulation Logic
+# ---------------------------------------------------------------------
+if st.button("Run Simulation", type="primary"):
     if query.strip() == "":
-        query = "How can we increase steel production with minimal investment?"
+        query = "How can we increase steel production with minimal investment and port efficiency?"
 
-    # Run simulation from decision_engine
+    # Run simulation from decision engine
     result = run_simulation(query)
+
+    # Randomly assign port details for realism
+    import_ports = ["Port Alpha", "Port Bravo", "Port Delta"]
+    export_ports = ["Port Echo", "Port Foxtrot", "Port Gamma"]
+
+    import_port = random.choice(import_ports)
+    export_port = random.choice(export_ports)
 
     # -----------------------------------------------------------------
     # 📊 Display Results
     # -----------------------------------------------------------------
     st.header("AI Recommendation Summary")
+
     st.write(f"**Recommended Plant:** {result['Recommended Plant']}")
     st.write(f"**Expected Output Increase:** {result['Expected Output Increase']}")
     st.write(f"**Capital Investment:** {result['Capital Investment']}")
     st.write(f"**ROI Period:** {result['ROI Period']}")
     st.write(f"**Energy Required:** {result['Energy Required']}")
+    st.write(f"**Import Port:** {import_port} (raw material intake)")
+    st.write(f"**Export Port:** {export_port} (finished product dispatch)")
 
-    st.markdown(f"<div class='highlight-box'>{result['Summary']}</div>", unsafe_allow_html=True)
+    summary = (
+        f"Increase capacity at {result['Recommended Plant']} using optimized raw material supply via {import_port} "
+        f"and outbound logistics through {export_port}. {result['Summary']}"
+    )
+
+    st.markdown(f"<div class='highlight-box'>{summary}</div>", unsafe_allow_html=True)
 
     # -----------------------------------------------------------------
     # 💬 Explainable AI Section
     # -----------------------------------------------------------------
     st.header("💬 Explainable AI Insight")
-
     with st.spinner("Generating AI explanation..."):
-        explanation = explain_decision(result["Summary"])
+        explanation = explain_decision(summary)
 
     st.markdown(f"<div class='explain-box'>{explanation}</div>", unsafe_allow_html=True)
 
     # -----------------------------------------------------------------
-    # 🔄 Data & Decision Flow (Sankey)
+    # 🔄 Data & Decision Flow (Ports + Plants)
     # -----------------------------------------------------------------
     st.header("📊 Data and Decision Flow")
 
@@ -92,38 +111,42 @@ if st.button("Run Simulation", type="primary", use_container_width=False):
         data=[
             go.Sankey(
                 node=dict(
-                    pad=40,
+                    pad=30,
                     thickness=25,
                     line=dict(color="black", width=0.5),
                     label=[
                         "CEO Query",
                         "Group Manager",
                         "Enterprise Manager (Steel)",
-                        "LOCAL Nodes",
+                        f"{import_port} (Import Port)",
+                        f"{result['Recommended Plant']} (Steel Plant)",
+                        f"{export_port} (Export Port)",
                         "Recommendation"
                     ],
                     color=[
                         "#2E86DE",
                         "#54A0FF",
                         "#FF6B6B",
-                        "#FFA07A",
+                        "#60A917",
+                        "#F39C12",
+                        "#16A085",
                         "#1DD1A1"
                     ],
                 ),
                 link=dict(
-                    source=[0, 1, 2, 3],
-                    target=[1, 2, 3, 4],
-                    value=[1, 1, 1, 1],
-                    color=["rgba(0,0,0,0.1)"] * 4
+                    source=[0, 1, 2, 3, 4, 5],
+                    target=[1, 2, 3, 4, 5, 6],
+                    value=[1, 1, 1, 1, 1, 1],
+                    color=["rgba(0,0,0,0.1)"] * 6
                 ),
             )
         ]
     )
 
     fig.update_layout(
-        title_text="Enterprise Decision Flow – From Strategy to Action",
+        title_text="Integrated Decision Flow – Strategy, Logistics, and Operations",
         font=dict(size=14, color="black"),
-        height=400,
+        height=500,
         margin=dict(l=0, r=0, t=50, b=0),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
