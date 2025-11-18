@@ -52,43 +52,50 @@ if st.button("Run Simulation"):
             st.success(explanation)
 
         # -----------------------------------------------------------------------------
-        # 4️⃣ Data and Decision Flow (Sankey Diagram)
+        # 4️⃣ Data and Decision Flow (Enhanced Sankey Diagram)
         # -----------------------------------------------------------------------------
         st.subheader("📊 Data and Decision Flow")
 
-        # Define node labels
+        # Dynamic last node label (Recommendation → Plant)
+        recommended = result['Recommended Plant']
         nodes = [
             "CEO Query",
             "Group Manager",
             "Enterprise Manager (Steel)",
             "LOCAL Nodes",
-            "Recommendation"
+            f"Recommendation → {recommended}"
         ]
 
-        # Define links between nodes (fixed structure)
+        # Define flows between nodes
         links = dict(
             source=[0, 1, 2, 3],
             target=[1, 2, 3, 4],
-            value=[1, 1, 1, 1]
+            value=[1, 1, 1, 1],
+            color=["#82c4ff", "#a0d8ef", "#ffc77a", "#b2f7b2"]
         )
 
-        # Create the Sankey diagram
+        # Create Sankey diagram
         fig = go.Figure(data=[go.Sankey(
             node=dict(
-                pad=25,
-                thickness=20,
-                line=dict(color="black", width=0.5),
+                pad=35,
+                thickness=28,
+                line=dict(color="white", width=0.5),
                 label=nodes,
-                color=["#1f77b4", "#6baed6", "#e6550d", "#fdae6b", "#31a354"]
+                color=["#007acc", "#5ba4cf", "#ff8c42", "#ffb677", "#33cc66"],
+                hovertemplate='%{label}<extra></extra>'
             ),
             link=links
         )])
 
+        # Layout and style
         fig.update_layout(
-            height=300,
-            paper_bgcolor="#f9f9f9",
-            plot_bgcolor="#f9f9f9",
-            font=dict(size=13, color="black")
+            height=380,
+            margin=dict(l=20, r=20, t=40, b=20),
+            paper_bgcolor="white",
+            plot_bgcolor="white",
+            font=dict(size=14, color="black"),
+            title_font=dict(size=18, color="black", family="sans-serif"),
+            title="Enterprise Decision Flow – From Query to Action"
         )
 
         st.plotly_chart(fig, use_container_width=True)
