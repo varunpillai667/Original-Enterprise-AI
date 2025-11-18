@@ -57,65 +57,75 @@ if st.button("Run Simulation"):
             st.success(explanation)
 
         # -----------------------------------------------------------------------------
-        # 4️⃣ Data and Decision Flow (Clear, Descriptive Version)
+        # 4️⃣ Data and Decision Flow (Readable, Scaled & Centered)
         # -----------------------------------------------------------------------------
         st.subheader("📊 Data and Decision Flow")
 
         recommended = result['Recommended Plant']
 
-        # Create figure
         fig = go.Figure()
 
-        # Define block properties
+        # Define block layout manually for fixed coordinate space
+        y_center = 0.5
+        block_width = 0.15
+        block_height = 0.25
+        gap = 0.04
+
         blocks = [
-            {"x0": 0.05, "x1": 0.23, "color": "#007acc", "title": "CEO Query",
-             "desc": "Defines strategic objective (e.g., increase steel production)."},
-            {"x0": 0.25, "x1": 0.43, "color": "#00b4d8", "title": "Group Manager",
-             "desc": "Interprets goal, prioritizes projects, and allocates budget."},
-            {"x0": 0.45, "x1": 0.63, "color": "#ff8c42", "title": "Enterprise Manager (Steel)",
-             "desc": "Analyzes capacity, evaluates investments, and forecasts ROI."},
-            {"x0": 0.65, "x1": 0.83, "color": "#ffc300", "title": "LOCAL Nodes",
-             "desc": "Simulate plant data (energy, output, logistics, etc.)."},
-            {"x0": 0.85, "x1": 0.98, "color": "#33cc66", "title": f"Recommendation → {recommended}",
-             "desc": "Synthesizes results and presents optimal decision."},
+            {"x": 0.0, "color": "#007acc", "title": "CEO Query",
+             "desc": "Defines strategic objectives such as increasing steel output."},
+            {"x": 0.2, "color": "#00b4d8", "title": "Group Manager",
+             "desc": "Interprets strategy, sets enterprise targets and allocates budgets."},
+            {"x": 0.4, "color": "#ff8c42", "title": "Enterprise Manager (Steel)",
+             "desc": "Analyzes plant performance, investment options, and ROI scenarios."},
+            {"x": 0.6, "color": "#ffc300", "title": "LOCAL Nodes",
+             "desc": "Aggregate plant-level data (energy, output, cost) for modeling."},
+            {"x": 0.8, "color": "#33cc66", "title": f"Recommendation → {recommended}",
+             "desc": "Synthesizes all results and provides optimal actionable decision."}
         ]
 
-        # Add rectangles (blocks)
+        # Draw each rectangular block and its annotations
         for b in blocks:
+            x0 = b["x"]
+            x1 = x0 + block_width
             fig.add_shape(
                 type="rect",
-                x0=b["x0"], y0=0.3, x1=b["x1"], y1=0.7,
-                line=dict(color="black", width=1.2),
-                fillcolor=b["color"],
-                opacity=0.9
+                x0=x0, y0=y_center - block_height / 2,
+                x1=x1, y1=y_center + block_height / 2,
+                line=dict(color="black", width=1.5),
+                fillcolor=b["color"], opacity=0.9
             )
             fig.add_annotation(
-                x=(b["x0"] + b["x1"]) / 2, y=0.6,
+                x=(x0 + x1) / 2, y=y_center + 0.07,
                 text=f"<b>{b['title']}</b>",
-                showarrow=False, font=dict(size=16, color="white")
+                font=dict(size=16, color="white"),
+                showarrow=False
             )
             fig.add_annotation(
-                x=(b["x0"] + b["x1"]) / 2, y=0.42,
-                text=f"<span style='font-size:12px;color:white'>{b['desc']}</span>",
+                x=(x0 + x1) / 2, y=y_center - 0.05,
+                text=f"<span style='font-size:13px;color:white'>{b['desc']}</span>",
                 showarrow=False
             )
 
-        # Add arrows between blocks
-        arrow_positions = [(0.23, 0.5), (0.43, 0.5), (0.63, 0.5), (0.83, 0.5)]
-        for (x, y) in arrow_positions:
+        # Draw arrows between the blocks
+        for i in range(len(blocks) - 1):
+            start_x = blocks[i]["x"] + block_width
+            end_x = blocks[i + 1]["x"]
             fig.add_annotation(
-                ax=x, ay=y, axref="x", ayref="y",
-                x=x + 0.015, y=y,
+                ax=start_x + gap / 4, ay=y_center,
+                x=end_x - gap / 4, y=y_center,
+                xref="x", yref="y", axref="x", ayref="y",
                 showarrow=True,
                 arrowhead=3, arrowsize=2, arrowwidth=2, arrowcolor="black"
             )
 
-        # Layout configuration
-        fig.update_xaxes(visible=False)
-        fig.update_yaxes(visible=False)
+        # Lock the coordinate system and remove axis visuals
+        fig.update_xaxes(range=[-0.05, 1.05], visible=False)
+        fig.update_yaxes(range=[0, 1], visible=False)
+
         fig.update_layout(
-            height=320,
-            margin=dict(l=10, r=10, t=30, b=10),
+            height=400,
+            margin=dict(l=20, r=20, t=60, b=20),
             paper_bgcolor="white",
             plot_bgcolor="white",
             title=dict(
