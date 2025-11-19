@@ -7,10 +7,9 @@ Three Enterprise Managers:
 - evaluate_energy()
 
 Each EM consumes company HQ inputs (simulated) and Local Node payloads.
-Now returns both aggregated metrics and detailed unit lists for UI.
+Returns per-unit lists and aggregated metrics.
 """
 from typing import Dict, Any, List
-import random
 
 def evaluate_steel(company_hq: Dict[str, Any], local_node_payload: Dict[str, Any], budget_usd: float = None) -> List[Dict[str, Any]]:
     plants = local_node_payload.get("steel_plants", [])
@@ -44,14 +43,13 @@ def evaluate_steel(company_hq: Dict[str, Any], local_node_payload: Dict[str, Any
     return results
 
 def evaluate_ports(company_hq: Dict[str, Any], local_node_payload: Dict[str, Any]) -> Dict[str, Any]:
-    # Build a detailed list of 4 ports (per your docs). Use the single port capacity as baseline.
     ports_raw = local_node_payload.get("ports", {})
     base_capacity = ports_raw.get("port2_capacity", 15000)
     base_util = ports_raw.get("current_utilization", 0.84)
 
     ports_list = []
     for i in range(4):
-        cap = int(base_capacity * (0.9 + 0.05 * i))  # vary capacities slightly
+        cap = int(base_capacity * (0.9 + 0.05 * i))
         util = round(min(0.95, base_util + (i * 0.01)), 2)
         ports_list.append({
             "port_id": f"Port {i+1}",
@@ -59,7 +57,6 @@ def evaluate_ports(company_hq: Dict[str, Any], local_node_payload: Dict[str, Any
             "utilization": util
         })
 
-    # Aggregate headroom computed from all ports
     total_headroom = sum([p["capacity"] * (1 - p["utilization"]) for p in ports_list])
     return {
         "port_headroom_units": round(total_headroom, 2),
@@ -70,25 +67,23 @@ def evaluate_ports(company_hq: Dict[str, Any], local_node_payload: Dict[str, Any
     }
 
 def evaluate_energy(company_hq: Dict[str, Any], local_node_payload: Dict[str, Any]) -> Dict[str, Any]:
-    # Build 3 power plant units (per your docs). Distribute available MW across them.
     energy_raw = local_node_payload.get("energy", {})
     avail = energy_raw.get("available_mw", 20)
     cost = energy_raw.get("cost_per_mw_usd", 1100)
 
-    # create 3 plants with capacities and utilization
     energy_units = []
     shares = [0.4, 0.35, 0.25]
     for i, s in enumerate(shares):
-        cap = round(max(5, avail / s), 2)  # approximate nominal capacity
+        available_mw = round(avail * s, 2)
+        cap = round(max(10, available_mw * 2.5), 2)
         util = round(min(0.98, 0.6 + i * 0.1), 2)
         energy_units.append({
             "plant_id": f"PP{i+1}",
             "capacity_mw": cap,
             "utilization": util,
-            "available_mw": round(avail * s, 2)
+            "available_mw": available_mw
         })
 
-    # conservative headroom (reserve 2 MW)
     headroom = max(0.0, avail - 2.0)
     return {
         "energy_available_mw": avail,
