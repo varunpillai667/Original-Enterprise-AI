@@ -6,8 +6,8 @@ from decision_engine import run_simulation, rationale_for_action_plan
 # INTERNAL (tooling only): local path to uploaded doc (not shown in UI)
 FILE_URL = "/mnt/data/Operational Flow.docx"
 
-st.set_page_config(page_title="Original Enterprise AI – Group Manager Cross-EM Demo", layout="wide")
-st.title("🧠 Group Manager Cross-EM Demo — Concept Prototype (Diagram)")
+st.set_page_config(page_title="Original Enterprise AI Concept Prototype", layout="wide")
+st.title("original enterprise AI concept prototype")
 
 st.markdown(
     """
@@ -31,8 +31,8 @@ capex_limit = st.number_input(
 
 def build_diagram_figure():
     """
-    Clean diagram:
-    OT Systems → Local Nodes (multiple units for each EM) → Steel EM / Ports EM / Energy EM → Group Manager → Recommendation
+    Clean diagram (no OT block):
+    Local Nodes (multiple units for each EM) → Steel EM / Ports EM / Energy EM → Group Manager → Recommendation
     """
     fig = go.Figure()
     fig.update_layout(
@@ -57,15 +57,17 @@ def build_diagram_figure():
         )
 
     # Main boxes (positions chosen for clarity)
-    draw_box(0.08, 0.5, 0.16, 0.22, "OT Systems\n(SCADA / MES / TOS)", "#F3F6FA")
-    draw_box(0.26, 0.28, 0.18, 0.16, "Local Nodes\n(multiple units\nfor Steel EM)", "#EAF4FF")
-    draw_box(0.26, 0.50, 0.18, 0.16, "Local Nodes\n(multiple units\nfor Ports EM)", "#EAF4FF")
-    draw_box(0.26, 0.72, 0.18, 0.16, "Local Nodes\n(multiple units\nfor Energy EM)", "#EAF4FF")
+    # Leftmost are local nodes clusters (one per EM, abstracted)
+    draw_box(0.12, 0.28, 0.20, 0.16, "Local Nodes\n(multiple units\nfor Steel EM)", "#EAF4FF")
+    draw_box(0.12, 0.50, 0.20, 0.16, "Local Nodes\n(multiple units\nfor Ports EM)", "#EAF4FF")
+    draw_box(0.12, 0.72, 0.20, 0.16, "Local Nodes\n(multiple units\nfor Energy EM)", "#EAF4FF")
 
-    draw_box(0.48, 0.28, 0.18, 0.14, "Steel EM", "#FDEEEE")
-    draw_box(0.48, 0.50, 0.18, 0.14, "Ports EM", "#EEF9F0")
-    draw_box(0.48, 0.72, 0.18, 0.14, "Energy EM", "#FFF7E6")
+    # EM boxes in the middle
+    draw_box(0.40, 0.28, 0.18, 0.14, "Steel EM", "#FDEEEE")
+    draw_box(0.40, 0.50, 0.18, 0.14, "Ports EM", "#EEF9F0")
+    draw_box(0.40, 0.72, 0.18, 0.14, "Energy EM", "#FFF7E6")
 
+    # Group Manager and Recommendation to the right
     draw_box(0.72, 0.50, 0.18, 0.20, "Group Manager", "#E9F2FF")
     draw_box(0.92, 0.50, 0.12, 0.16, "Recommendation", "#E8FFF0")
 
@@ -80,28 +82,23 @@ def build_diagram_figure():
             arrowwidth=w, arrowcolor="#555555"
         )
 
-    # OT → Local Node clusters
-    arrow(0.16, 0.50, 0.17, 0.28)
-    arrow(0.16, 0.50, 0.17, 0.50)
-    arrow(0.16, 0.50, 0.17, 0.72)
+    # Local Nodes -> each EM
+    arrow(0.22, 0.28, 0.31, 0.28)
+    arrow(0.22, 0.50, 0.31, 0.50)
+    arrow(0.22, 0.72, 0.31, 0.72)
 
-    # Local Nodes → each EM
-    arrow(0.35, 0.28, 0.39, 0.28)
-    arrow(0.35, 0.50, 0.39, 0.50)
-    arrow(0.35, 0.72, 0.39, 0.72)
+    # EMs -> Group Manager
+    arrow(0.49, 0.28, 0.63, 0.50)
+    arrow(0.49, 0.50, 0.63, 0.50)
+    arrow(0.49, 0.72, 0.63, 0.50)
 
-    # EMs → Group Manager
-    arrow(0.57, 0.28, 0.63, 0.50)
-    arrow(0.57, 0.50, 0.63, 0.50)
-    arrow(0.57, 0.72, 0.63, 0.50)
-
-    # Group Manager → Recommendation
+    # Group Manager -> Recommendation
     arrow(0.81, 0.50, 0.86, 0.50, w=2.5)
 
     # Caption under diagram
     fig.add_annotation(
         x=0.5, y=0.04,
-        text="Data flow: OT telemetry → Local Nodes (per unit) → EMs → Group Manager → Recommendation",
+        text="Data flow: Local Nodes (per unit) → EMs → Group Manager → Recommendation",
         showarrow=False,
         font=dict(size=11, color="#222222")
     )
