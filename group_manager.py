@@ -1,63 +1,92 @@
 """
-Group Manager:
-Applies cross-enterprise constraints:
-- energy system
-- port capacity
-Selects the best EM candidate while respecting optional CapEx limits.
+group_manager.py
+
+Takes outputs from Steel-EM (list of candidates), Ports-EM (port struct),
+and Energy-EM (energy struct). Runs cross-enterprise checks to select the optimal
+steel expansion plan that respects port and energy constraints.
 """
 from typing import Dict, Any, List
 
-def orchestrate(em_candidates: List[Dict[str, Any]], data: Dict[str, Any], capex_limit_usd: float = None):
-    energy_available = data["energy"]["available_mw"]
-    port_capacity = data["ports"]["port2_capacity"]
-    port_util = data["ports"]["current_utilization"]
+def orchestrate_across_ems(steel_candidates: List[Dict[str, Any]],
+                           ports_info: Dict[str, Any],
+                           energy_info: Dict[str, Any],
+                           capex_limit_usd: float = None) -> Dict[str, Any]:
+    """
+    Strategy:
+      - Iterate steel candidates in order of EM score
+      - For each candidate, check:
+          * candidate.energy_required_mw <= energy_info['energy_headroom_mw']
+          * candidate.estimated_increase_units <= ports_info['port_headroom_units']
+          * candidate.capex_estimate_usd <= capex_limit_usd (if provided)
+      - Return the first candidate satisfying all constraints with cross-EM justification.
+      - If none match, return top candidate with flagged constraint breaches and recommended mitigations.
+    """
+    energy_headroom = energy_info.get("energy_headroom_mw", 0.0)
+    port_headroom = ports_info.get("port_headroom_units", 0.0)
 
-    # Conservative headroom in units (based on port capacity and utilization)
-    port_headroom = max(0.0, (1.0 - port_util)) * port_capacity
+    if not steel_candidates:
+        raise RuntimeError("No steel candidates provided to Group Manager.")
 
-    # Iterate candidates in order (EM should provide them sorted by score)
-    for c in em_candidates:
-        # Respect capex limit if provided
+    for c in steel_candidates:
         if capex_limit_usd is not None and c["capex_estimate_usd"] > capex_limit_usd:
             continue
-
-        # Check energy and port headroom constraints
-        if c["energy_required_mw"] <= energy_available and c["estimated_increase_units"] <= port_headroom:
+        energy_ok = c["energy_required_mw"] <= energy_headroom
+        port_ok = c["estimated_increase_units"] <= port_headroom
+        if energy_ok and port_ok:
+            justification = {
+                "why": "Candidate meets energy and port headroom constraints",
+                "energy_headroom_mw": energy_headroom,
+                "energy_required_mw": c["energy_required_mw"],
+                "port_headroom_units": port_headroom,
+                "estimated_increase_units": c["estimated_increase_units"]
+            }
             return {
                 "recommended_plant": c["plant_id"],
                 "expected_increase_pct": f"+{c['feasible_increase_pct']}%",
                 "investment_usd": c["capex_estimate_usd"],
                 "roi_period_months": c["roi_months"],
                 "energy_required_mw": c["energy_required_mw"],
-                "summary": f"Expand {c['plant_id']} by {c['feasible_increase_pct']}% using {c['energy_required_mw']} MW.",
-                "justification": {
-                    "why": "Meets energy & port constraints",
-                    "energy_available_mw": energy_available,
-                    "energy_required_mw": c["energy_required_mw"],
-                    "port_headroom_units": port_headroom,
-                    "estimated_increase_units": c["estimated_increase_units"]
-                },
-                "explainability": c.get("explainability", {})
+                "summary": f"Select {c['plant_id']} expansion; passes port & energy checks.",
+                "justification": justification,
+                "explainability": {
+                    "steel_em": c.get("explainability", {}),
+                    "ports_em": ports_info.get("explainability", {}),
+                    "energy_em": energy_info.get("explainability", {})
+                }
             }
 
-    # If no candidate satisfies strict constraints, return top candidate with a note
-    if not em_candidates:
-        raise RuntimeError("No EM candidates provided to Group Manager.")
+    # No candidate satisfied hard constraints: return top candidate with breach details
+    top = steel_candidates[0]
+    breaches = {
+        "energy_required_mw": top["energy_required_mw"],
+        "energy_headroom_mw": energy_headroom,
+        "estimated_increase_units": top["estimated_increase_units"],
+        "port_headroom_units": port_headroom,
+        "capex_exceeded": capex_limit_usd is not None and top["capex_estimate_usd"] > capex_limit_usd
+    }
+    mitigation = []
+    if breaches["energy_required_mw"] > breaches["energy_headroom_mw"]:
+        mitigation.append("increase energy supply or phase expansion")
+    if breaches["estimated_increase_units"] > breaches["port_headroom_units"]:
+        mitigation.append("stagger shipments or expand port throughput")
+    if breaches["capex_exceeded"]:
+        mitigation.append("raise CapEx budget or choose lower-capex option")
 
-    top = em_candidates[0]
     return {
         "recommended_plant": top["plant_id"],
         "expected_increase_pct": f"+{top['feasible_increase_pct']}% (soft)",
         "investment_usd": top["capex_estimate_usd"],
         "roi_period_months": top["roi_months"],
         "energy_required_mw": top["energy_required_mw"],
-        "summary": f"Top candidate {top['plant_id']} selected but constraints exceeded.",
+        "summary": f"Top candidate {top['plant_id']} requires mitigation: {', '.join(mitigation)}",
         "justification": {
-            "why": "No candidate satisfied strict constraints",
-            "energy_available_mw": energy_available,
-            "energy_required_mw": top["energy_required_mw"],
-            "port_headroom_units": port_headroom,
-            "estimated_increase_units": top["estimated_increase_units"]
+            "why": "Top candidate selected but crosses one or more group constraints",
+            "breaches": breaches,
+            "recommended_mitigations": mitigation
         },
-        "explainability": top.get("explainability", {})
+        "explainability": {
+            "steel_em": top.get("explainability", {}),
+            "ports_em": ports_info.get("explainability", {}),
+            "energy_em": energy_info.get("explainability", {})
+        }
     }
