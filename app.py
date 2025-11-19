@@ -1,7 +1,7 @@
 # app.py
 import streamlit as st
 import plotly.graph_objects as go
-from decision_engine import run_simulation  # rationale_for_action_plan removed; use result returned by run_simulation
+from decision_engine import run_simulation  # decision_engine returns result dict including summary, action_plan, justification, etc.
 
 # INTERNAL (tooling only): local path to uploaded doc (not shown in UI)
 # File URL (tooling): /mnt/data/Operational Flow.docx
@@ -25,7 +25,7 @@ Only the Group Manager performs cross-enterprise reasoning by combining insights
 """
 )
 
-# Strategic query (updated per user request; no CapEx input)
+# Default strategic query (as requested earlier)
 default_query = (
     "HOW CAN WE INCREASE THE STEEL PRODUCTION BY 2 MTPA WHERE THE ADDITIONAL INVESTMENT MADE "
     "SHOULD BE RECOVERED IN LESS THAN 9 MONTHS."
@@ -160,7 +160,7 @@ if st.button("Run Simulation"):
                     f"(avg util {p.get('current_utilization','N/A')})"
                 )
                 st.markdown("**All Port Units (Company A):**")
-                for port in result["em_summaries"].get("port_units_details", []):
+                for port in result["em_summaries"].get("port_unit_details", []) if result["em_summaries"].get("port_unit_details") else result["em_summaries"].get("port_units_details", []):
                     st.write(f"- {port.get('port_id','N/A')}: capacity {port.get('capacity','N/A')}, utilization {port.get('utilization','N/A')}")
 
             with cols[2]:
@@ -181,18 +181,58 @@ if st.button("Run Simulation"):
             st.subheader("Data Flow Diagram")
             st.plotly_chart(build_diagram_figure(), use_container_width=True)
 
-            # Rationale for Action Plan (single header; use summary + justification)
+            # Rationale for Action Plan (single header; friendly justification rendering)
             st.subheader("Rationale for Action Plan")
             st.markdown(result.get("summary", ""))
 
-            if "justification" in result:
-                st.markdown("**Justification:**")
-                st.write(result["justification"])
+            # Render "justification" in friendly text rather than raw JSON
+            justification = result.get("justification", {})
+            if justification:
+                # friendly mappings for breach codes
+                breach_map = {
+                    "insufficient_single_plant_increase": "No single plant can deliver the full required increase; multiple plants or a combined plan is needed.",
+                    "roi_exceeds_limit": "Estimated ROI for the candidate exceeds the required maximum recovery period.",
+                    "energy_shortfall": "Available energy headroom is insufficient for the uplift requested.",
+                    "port_shortfall": "Port headroom/capacity is insufficient for the additional shipments required."
+                }
 
+                breaches = justification.get("breaches", [])
+                mitigations = justification.get("mitigations", [])
+
+                # show numeric context where available
+                ctx_lines = []
+                if "energy_headroom_mw" in justification:
+                    ctx_lines.append(f"- Energy headroom: {justification.get('energy_headroom_mw')} MW")
+                if "port_headroom_units" in justification:
+                    ctx_lines.append(f"- Port headroom: {justification.get('port_headroom_units')} shipment units")
+                # sometimes group_manager returns numeric justification in nested 'justification' or top-level 'justification' may be limited
+                # also check result.top-level values
+                if not ctx_lines:
+                    # try some top-level fields as fallback
+                    if "energy_required_mw" in result:
+                        ctx_lines.append(f"- Energy required by recommendation: {result.get('energy_required_mw')} MW")
+                    if "expected_increase_tpa" in result:
+                        ctx_lines.append(f"- Expected increase (tpa): {result.get('expected_increase_tpa')}")
+
+                if ctx_lines:
+                    st.markdown("**Context:**")
+                    for line in ctx_lines:
+                        st.markdown(line)
+
+                if breaches:
+                    st.markdown("**Breaches / Constraints Identified:**")
+                    for b in breaches:
+                        human = breach_map.get(b, b)
+                        st.markdown(f"- {human}")
+
+                if mitigations:
+                    st.markdown("**Suggested Mitigations / Next Steps:**")
+                    for m in mitigations:
+                        st.markdown(f"- {m}")
+
+            # budget/flag note if applicable
             if result.get("budget_flag", False):
-                st.warning(
-                    "Candidate selection was influenced by budget or ROI constraints. See Rationale for details."
-                )
+                st.warning("Candidate selection was influenced by budget or ROI constraints. See Rationale for details.")
 
         except Exception as exc:
             st.error(f"Simulation Error: {exc}")
