@@ -12,7 +12,6 @@ st.markdown("""
 - Local Nodes collect telemetry from OT systems at Ports & Plants.
 """)
 
-# Default strategic query requested
 query = st.text_input("Strategic Query:", "How can we increase the steel production 2 MTPA.")
 capex_limit = st.number_input("Optional CapEx limit (USD):", value=0.0, min_value=0.0, step=50000.0, format="%.2f")
 
@@ -29,7 +28,10 @@ if st.button("Run Simulation"):
             st.markdown(f"**Investment (USD):** ${result['investment_usd']:,}")
             st.markdown(f"**ROI:** {result['roi_period_months']} months")
             st.markdown(f"**Energy Required:** {result['energy_required_mw']} MW")
-            st.info(result['summary'])
+
+            # Show action plan (clear instruction) instead of generic summary or CapEx note
+            action = result.get('action_plan', result.get('summary', 'No action plan available.'))
+            st.info(action)
 
             # EM summaries and full unit details (no provenance, no doc references)
             st.subheader("Enterprise Manager Summaries — Unit Details")
