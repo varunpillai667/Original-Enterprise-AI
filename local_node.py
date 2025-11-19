@@ -1,47 +1,42 @@
 """
 local_node.py
-Simulates LOCAL Node behavior:
-- Ingests raw data (mock_data.json)
-- Performs light preprocessing
-- Buffers data (returns structured dict)
-No analytics. Matches architecture rules.
+
+LOCAL Node responsibilities (lightweight, no analytics):
+- Ingest OT system feeds from ports & plants (SCADA, DCS, MES, TOS)
+- Light preprocess (validate, timestamp, normalize)
+- Tag data with source metadata and forward to Enterprise Manager
 """
 import json
 from datetime import datetime
 from typing import Dict, Any
 
-# Use project-relative path so app works on any host/environment
 DATA_PATH = "mock_data.json"
 
-def ingest_data(path: str = DATA_PATH) -> Dict[str, Any]:
+def ingest_local_site(site_id: str = "Site-1", path: str = DATA_PATH) -> Dict[str, Any]:
+    """
+    Simulate reading OT system data for a local site and returning
+    a structured payload annotated with source info.
+    """
     with open(path, "r") as f:
         raw = json.load(f)
 
     now = datetime.utcnow().isoformat() + "Z"
 
-    steel = []
-    for p in raw.get("steel_plants", []):
-        steel.append({
-            "plant_id": p["plant_id"],
-            "capacity": float(p["capacity"]),
-            "utilization": float(p["utilization"]),
-            "capex_estimate_usd": float(p["capex_estimate_usd"]),
-            "roi_months": int(p["roi_months"])
-        })
-
-    energy = {
-        "available_mw": float(raw["energy"]["available_mw"]),
-        "cost_per_mw_usd": float(raw["energy"]["cost_per_mw_usd"])
-    }
-
-    ports = {
-        "port2_capacity": float(raw["ports"]["port2_capacity"]),
-        "current_utilization": float(raw["ports"]["current_utilization"])
-    }
-
-    return {
+    # Example OT telemetry (taken from mock data for demo purposes)
+    # Tag every field with the originating OT system in the 'sources' field
+    ot_payload = {
+        "site_id": site_id,
         "timestamp": now,
-        "steel_plants": steel,
-        "energy": energy,
-        "ports": ports
+        "systems": {
+            "SCADA": {"note": "turbine/boiler telemetry (sample)", "sample_values": {"temp": 350}},
+            "MES": {"note": "production rates & downtime (sample)", "sample_values": {"rate": 120}},
+            "TOS": {"note": "terminal yard stats (sample)", "sample_values": {"throughput": 450}}
+        },
+        # For demo, include small slices of mock_data so EMs can use realistic numbers
+        "steel_plants": raw.get("steel_plants", []),
+        "energy": raw.get("energy", {}),
+        "ports": raw.get("ports", {}),
+        "source": "LOCAL_NODE"
     }
+
+    return ot_payload
