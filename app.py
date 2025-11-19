@@ -9,12 +9,17 @@ FILE_URL = "/mnt/data/Operational Flow.docx"
 st.set_page_config(page_title="Original Enterprise AI Concept Prototype", layout="wide")
 st.title("original enterprise AI concept prototype")
 
-# REPLACED INTRO TEXT (user requested a clear explanatory paragraph)
+# REPLACED INTRO TEXT (includes enterprise-manager behaviour note)
 st.markdown(
     """
 **This is a mock prototype created to demonstrate and clarify the Original Enterprise AI concept.**  
 A strategic query has been pre-filled as an example. The results shown after running the simulation are produced from assumed sample data for demonstration purposes only.  
-In a production deployment the platform will pull live telemetry and enterprise data from connected systems across the organisation (via Local Nodes and Enterprise Managers), and the Group Manager will use that live data to produce operational recommendations.
+
+In a real deployment, the platform will pull live telemetry and enterprise information from connected systems across the organisation via Local Nodes and Enterprise Managers.
+
+Each Enterprise Manager can independently produce operational recommendations for the units and systems connected to it at the company level.  
+However, Enterprise Managers cannot access the Group Manager or any cross-enterprise data.  
+Only the Group Manager performs cross-enterprise reasoning by combining insights from multiple Enterprise Managers.
 """
 )
 
