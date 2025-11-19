@@ -41,7 +41,7 @@ st.markdown(
 st.markdown("<h1 class='title'>🚢 Original Enterprise AI – Group X Prototype</h1>", unsafe_allow_html=True)
 st.markdown(
     "<p class='subtitle'>This demo shows how <b>Original Enterprise AI</b> processes a CEO's strategic query through "
-    "<b>Group Manager → Enterprise Manager → Port Nodes → Steel Plants</b> and returns an explainable recommendation "
+    "<b>Group Manager → Enterprise Manager → Local Nodes </b> and returns an explainable recommendation "
     "that aligns logistics and production.</p>",
     unsafe_allow_html=True
 )
@@ -153,3 +153,4 @@ if st.button("Run Simulation", type="primary"):
     )
 
     st.plotly_chart(fig, use_container_width=True)
+
