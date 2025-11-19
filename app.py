@@ -4,17 +4,19 @@ import plotly.graph_objects as go
 from decision_engine import run_simulation, rationale_for_action_plan
 
 # INTERNAL (tooling only): local path to uploaded doc (not shown in UI)
-# Use this local path as the file URL in your tooling when needed.
 FILE_URL = "/mnt/data/Operational Flow.docx"
 
 st.set_page_config(page_title="Original Enterprise AI Concept Prototype", layout="wide")
 st.title("Original Enterprise AI Concept Prototype")
 
-# Intro / Context (cleaned per request; removed assumed-systems section)
+# Intro / Context (short Group X description included)
 st.markdown(
     """
 **This is a mock prototype created to demonstrate and clarify the Original Enterprise AI concept.**  
 A strategic query has been pre-filled as an example. The results shown after running the simulation are produced from assumed sample data for demonstration purposes only.
+
+**About Group X (example):**  
+Group X is a sample industrial group consisting of three companies — a ports company, a steel manufacturing company, and an energy generation company. This prototype demonstrates how their operational and enterprise data would flow from Local Nodes to Enterprise Managers and finally to the Group Manager.
 
 Each Enterprise Manager can independently produce operational recommendations for the units and systems connected to it at the company level.  
 However, Enterprise Managers cannot access the Group Manager or any cross-enterprise data.  
@@ -37,7 +39,7 @@ def build_diagram_figure():
     Clean diagram (no OT block):
     Local Nodes (multiple units for each EM) → Steel EM / Ports EM / Energy EM → Group Manager → Recommendation
 
-    Arrows are straight, uniform, and visually aligned (style A chosen).
+    Arrows are straight, uniform, and visually aligned (style A: classic straight arrows).
     """
     fig = go.Figure()
     fig.update_layout(
@@ -79,10 +81,6 @@ def build_diagram_figure():
     arrow_width = 2
 
     def straight_arrow(x0, y0, x1, y1, width=arrow_width, color=arrow_color):
-        """
-        Draw a straight arrow from (x0, y0) -> (x1, y1) using an annotation directed correctly.
-        Using ax/ay to place the tail ensures a straight line.
-        """
         fig.add_annotation(
             x=x1, y=y1, ax=x0, ay=y0,
             xref="x", yref="y", axref="x", ayref="y",
@@ -95,7 +93,7 @@ def build_diagram_figure():
     straight_arrow(0.22, 0.50, 0.31, 0.50)
     straight_arrow(0.22, 0.72, 0.31, 0.72)
 
-    # EMs -> Group Manager (straight, slightly diagonal but aligned to group center)
+    # EMs -> Group Manager (straight, aligned to group center)
     straight_arrow(0.49, 0.28, 0.63, 0.50)
     straight_arrow(0.49, 0.50, 0.63, 0.50)
     straight_arrow(0.49, 0.72, 0.63, 0.50)
