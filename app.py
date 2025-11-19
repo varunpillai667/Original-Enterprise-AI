@@ -3,9 +3,6 @@ import streamlit as st
 import plotly.graph_objects as go
 from decision_engine import run_simulation, rationale_for_action_plan
 
-# NOTE (internal only): path to uploaded operational-flow file (not shown in UI, kept for tooling)
-DOC_PATH = "/mnt/data/Operational Flow.docx"
-
 st.set_page_config(page_title="Original Enterprise AI – Group Manager Cross-EM Demo", layout="wide")
 st.title("🧠 Group Manager Cross-EM Demo — Concept Prototype")
 
@@ -91,24 +88,57 @@ if st.button("Run Simulation"):
                         f"utilization {plant.get('utilization','N/A')}, avail {plant.get('available_mw','N/A')} MW"
                     )
 
-            # Sankey visualization to show architecture flow (illustrative)
-            nodes = [
-                "OT Systems (SCADA/MES/TOS)", "Local Node",
-                "Steel HQ (ERP)", "Steel EM",
-                "Ports HQ (ERP)", "Ports EM",
-                "Energy HQ (ERP)", "Energy EM",
-                "Group Manager", "Recommendation"
-            ]
-            node_colors = ["#d6eaf8","#aed6f1","#f9e79f","#f5b7b1","#d5f5e3","#fad7a0","#d6eaf8","#f5cba7","#5dade2","#1abc9c"]
-            source = [0, 0, 1, 2, 3, 4, 5, 6, 7]
-            target = [1, 2, 3, 3, 8, 5, 8, 7, 8]
-            value = [5, 2, 3, 4, 3, 2, 4, 3, 5]
+            # ---------- SIMPLE, MINIMAL, READABLE SANKey ----------
+            st.subheader("System Connectivity & Data Flow (concept)")
 
-            fig = go.Figure(data=[go.Sankey(
-                node=dict(label=nodes, color=node_colors, pad=15, thickness=20),
-                link=dict(source=source, target=target, value=value)
-            )])
-            fig.update_layout(title_text="System Connectivity & Data Flow (concept)", font_size=11)
+            # Clear, short nodes
+            nodes = [
+                "OT Systems",         # 0
+                "Local Node",         # 1
+                "Steel EM",           # 2
+                "Ports EM",           # 3
+                "Energy EM",          # 4
+                "Group Manager",      # 5
+                "Recommendation"      # 6
+            ]
+
+            # We draw only the obvious primary flows: OT->LocalNode, LocalNode->SteelEM, HQ->EMs (collapsed),
+            # EMs -> Group Manager, Group Manager -> Recommendation.
+            # Keep values small and consistent so widths are readable.
+            source = [0, 1, 2, 3, 4, 5]
+            target = [1, 2, 5, 5, 5, 6]
+            value  = [3, 2, 1, 1, 1, 2]  # illustrative weights
+
+            node_colors = ["#E8F3FF", "#D6EBFF", "#F5E6E6", "#E8F7EA", "#FFF3D6", "#DDEBF7", "#D1F0E1"]
+            link_color = "rgba(120,120,120,0.4)"  # neutral gray links
+
+            fig = go.Figure(go.Sankey(
+                arrangement="fixed",
+                node = dict(
+                    pad = 20,
+                    thickness = 18,
+                    line = dict(color = "black", width = 0.5),
+                    label = nodes,
+                    color = node_colors,
+                    x=[0.0, 0.15, 0.45, 0.45, 0.45, 0.75, 0.95],  # horizontal positions to keep layout compact and linear
+                    y=[0.5, 0.5, 0.2, 0.5, 0.8, 0.5, 0.5]          # vertical positions to avoid overlap
+                ),
+                link = dict(
+                    source = source,
+                    target = target,
+                    value = value,
+                    color = [link_color] * len(source)
+                )
+            ))
+
+            # Minimal, readable layout
+            fig.update_layout(
+                margin=dict(l=10, r=10, t=20, b=10),
+                font=dict(size=12),
+                title_text="Simple Data Flow — OT → Local Node → EMs → Group",
+                height=300
+            )
+
             st.plotly_chart(fig, use_container_width=True)
 
             # Rationale for Action Plan (explains why the plan was given, based on data)
