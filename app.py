@@ -1,9 +1,10 @@
 # app.py
 import streamlit as st
 import plotly.graph_objects as go
-from decision_engine import run_simulation, rationale_for_action_plan
+from decision_engine import run_simulation  # rationale_for_action_plan removed; use result returned by run_simulation
 
 # INTERNAL (tooling only): local path to uploaded doc (not shown in UI)
+# File URL (tooling): /mnt/data/Operational Flow.docx
 FILE_URL = "/mnt/data/Operational Flow.docx"
 
 st.set_page_config(page_title="Original Enterprise AI Concept Prototype", layout="wide")
@@ -24,9 +25,11 @@ Only the Group Manager performs cross-enterprise reasoning by combining insights
 """
 )
 
-# Exact strategic query requested: (capitalized as requested)
-default_query = ("HOW CAN WE INCREASE THE STEEL PRODUCTION BY 2 MTPA WHERE THE ADDITIONAL "
-                 "INVESTMENT MADE SHOULD BE RECOVERED IN LESS THAN 9 MONTHS.")
+# Strategic query (updated per user request; no CapEx input)
+default_query = (
+    "HOW CAN WE INCREASE THE STEEL PRODUCTION BY 2 MTPA WHERE THE ADDITIONAL INVESTMENT MADE "
+    "SHOULD BE RECOVERED IN LESS THAN 9 MONTHS."
+)
 query = st.text_input("Strategic Query:", default_query)
 
 def build_diagram_figure():
@@ -66,11 +69,11 @@ def build_diagram_figure():
     draw_box(0.40, 0.50, 0.18, 0.14, "Ports EM", "#EEF9F0")
     draw_box(0.40, 0.72, 0.18, 0.14, "Energy EM", "#FFF7E6")
 
-    # Right: Group Manager & Recommendation
+    # Right: Group Manager and Recommendation
     draw_box(0.72, 0.50, 0.18, 0.20, "Group Manager", "#E9F2FF")
     draw_box(0.92, 0.50, 0.12, 0.16, "Recommendation", "#E8FFF0")
 
-    # Arrow helper (straight, visible)
+    # Highly visible straight arrows (classic)
     arrow_color = "#111111"
     arrow_width = 3
     arrow_head = 4
@@ -86,7 +89,7 @@ def build_diagram_figure():
             arrowcolor=color
         )
 
-    # Local Nodes -> EMs
+    # Local Nodes -> EMs (horizontal)
     straight_arrow(0.22, 0.28, 0.31, 0.28)
     straight_arrow(0.22, 0.50, 0.31, 0.50)
     straight_arrow(0.22, 0.72, 0.31, 0.72)
@@ -99,7 +102,7 @@ def build_diagram_figure():
     # Group Manager -> Recommendation
     straight_arrow(0.81, 0.50, 0.86, 0.50, width=4, head=5)
 
-    # Caption
+    # Caption under diagram
     fig.add_annotation(
         x=0.5, y=0.03,
         text="Data flow: Local Nodes (per unit) → EMs → Group Manager → Recommendation",
@@ -111,16 +114,17 @@ def build_diagram_figure():
     fig.update_yaxes(visible=False, range=[0,1])
     return fig
 
-# Single action: run simulation and render diagram/results
+# Run Simulation (single action: run + diagram)
 if st.button("Run Simulation"):
     with st.spinner("Running cross-EM simulation and building diagram..."):
         try:
-            result = run_simulation(query)  # decision_engine will parse query constraints
+            # run simulation (decision_engine will parse query constraints)
+            result = run_simulation(query)
 
-            # Recommendation card
+            # Recommendation card (concise)
             st.subheader("Group Manager Recommendation")
             st.markdown(f"**Plant:** {result.get('recommended_plant', 'N/A')}")
-            st.markdown(f"**Expected Increase:** {result.get('expected_increase_tpa', 'N/A')} tpa")
+            st.markdown(f"**Expected Increase:** {result.get('expected_increase_tpa', result.get('expected_increase_tpa', 'N/A'))} tpa")
             inv = result.get('investment_usd')
             st.markdown(f"**Investment (USD):** ${inv:,}" if isinstance(inv, (int, float)) else f"**Investment (USD):** {inv}")
             st.markdown(f"**ROI:** {result.get('roi_months', 'N/A')} months")
@@ -130,7 +134,7 @@ if st.button("Run Simulation"):
             action = result.get('action_plan', result.get('summary', 'No action plan available.'))
             st.info(action)
 
-            # EM summaries
+            # Unit summaries (compact)
             st.subheader("Enterprise Manager Summaries — Unit Details")
             cols = st.columns(3)
             with cols[0]:
@@ -147,6 +151,7 @@ if st.button("Run Simulation"):
                         f"utilization {su.get('utilization','N/A')}, capex est ${su.get('capex_estimate_usd','N/A'):,}, "
                         f"ROI {su.get('roi_months','N/A')} months"
                     )
+
             with cols[1]:
                 st.markdown("**Ports EM — Aggregate**")
                 p = result["em_summaries"].get("ports_info", {})
@@ -157,6 +162,7 @@ if st.button("Run Simulation"):
                 st.markdown("**All Port Units (Company A):**")
                 for port in result["em_summaries"].get("port_units_details", []):
                     st.write(f"- {port.get('port_id','N/A')}: capacity {port.get('capacity','N/A')}, utilization {port.get('utilization','N/A')}")
+
             with cols[2]:
                 st.markdown("**Energy EM — Aggregate**")
                 e = result["em_summaries"].get("energy_info", {})
@@ -171,18 +177,22 @@ if st.button("Run Simulation"):
                         f"utilization {plant.get('utilization','N/A')}, avail {plant.get('available_mw','N/A')} MW"
                     )
 
-            # Diagram
+            # Render the simplified diagram
             st.subheader("Data Flow Diagram")
             st.plotly_chart(build_diagram_figure(), use_container_width=True)
 
-            # Rationale (single header)
+            # Rationale for Action Plan (single header; use summary + justification)
             st.subheader("Rationale for Action Plan")
-            rationale_md = rationale_for_action_plan(query, result)
-            rationale_md = rationale_md.replace("Rationale for Action Plan", "").strip()
-            st.markdown(rationale_md)
+            st.markdown(result.get("summary", ""))
+
+            if "justification" in result:
+                st.markdown("**Justification:**")
+                st.write(result["justification"])
 
             if result.get("budget_flag", False):
-                st.warning("Candidate selection was influenced by budget or ROI constraints. See Rationale for details.")
+                st.warning(
+                    "Candidate selection was influenced by budget or ROI constraints. See Rationale for details."
+                )
 
         except Exception as exc:
             st.error(f"Simulation Error: {exc}")
