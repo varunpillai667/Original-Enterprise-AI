@@ -48,13 +48,16 @@ def orchestrate_across_ems(steel_candidates: List[Dict[str, Any]],
         "energy_required_mw": top["energy_required_mw"],
         "energy_headroom_mw": energy_headroom,
         "estimated_increase_units": top["estimated_increase_units"],
-        "port_headroom_units": port_headroom
+        "port_headroom_units": port_headroom,
+        "capex_exceeded": capex_limit_usd is not None and top["capex_estimate_usd"] > capex_limit_usd
     }
     mitigations = []
     if breaches["energy_required_mw"] > breaches["energy_headroom_mw"]:
         mitigations.append("increase energy supply or phase rollout")
     if breaches["estimated_increase_units"] > breaches["port_headroom_units"]:
         mitigations.append("stagger shipments or augment port capacity")
+    if breaches["capex_exceeded"]:
+        mitigations.append("raise CapEx budget or choose lower-capex option")
 
     return {
         "recommended_plant": top["plant_id"],
