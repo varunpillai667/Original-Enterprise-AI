@@ -1,168 +1,139 @@
+# decision_engine.py
 """
-decision_engine.py
+Top-level simulation runner. Parses query constraints and orchestrates EM evaluations + Group Manager.
+"""
 
-Orchestrator: Local Node -> Enterprise Managers -> Group Manager
-Includes a rationale builder that explains why the action plan was recommended,
-based on data collected from Local Node and EM outputs (steel, ports, energy).
-"""
-from local_node import ingest_local_site
+import json
+import os
+import re
+from typing import Dict, Any, List
+
 from enterprise_manager import evaluate_steel, evaluate_ports, evaluate_energy
 from group_manager import orchestrate_across_ems
 
-def _fetch_company_hq_stub(company: str) -> dict:
-    return {"company": company}
+# default mock data path (uploaded by user)
+MOCK_PATH = "/mnt/data/mock_data.json"
 
-def _fetch_group_systems_stub() -> dict:
-    return {"commodity_index": 102.5, "treasury_signal": "neutral", "esg_reporting_required": False}
-
-PORT_UNITS = ["Port 1", "Port 2", "Port 3", "Port 4"]
-STEEL_UNITS = ["SP1", "SP2", "SP3", "SP4"]
-ENERGY_UNITS = ["PP1", "PP2", "PP3"]
-
-def run_simulation(query: str, capex_limit_usd: float = None) -> dict:
-    local_payload = ingest_local_site(site_id="Port+Plant-Site")
-    steel_hq = _fetch_company_hq_stub("CompanyB_Steel")
-    ports_hq = _fetch_company_hq_stub("CompanyA_Ports")
-    energy_hq = _fetch_company_hq_stub("CompanyC_Energy")
-    group_systems = _fetch_group_systems_stub()
-
-    steel_candidates = evaluate_steel(steel_hq, local_payload, budget_usd=capex_limit_usd) if capex_limit_usd is not None else evaluate_steel(steel_hq, local_payload)
-    ports_info = evaluate_ports(ports_hq, local_payload)
-    energy_info = evaluate_energy(energy_hq, local_payload)
-
-    budget_flag = False
-    if not steel_candidates:
-        budget_flag = True
-        steel_candidates = evaluate_steel(steel_hq, local_payload, budget_usd=None)
-
-    result = orchestrate_across_ems(steel_candidates, ports_info, energy_info, group_systems, capex_limit_usd)
-
-    steel_units_details = [
-        {
-            "plant_id": p.get("plant_id"),
-            "capacity": p.get("capacity"),
-            "utilization": p.get("utilization"),
-            "capex_estimate_usd": p.get("capex_estimate_usd"),
-            "roi_months": p.get("roi_months")
-        } for p in local_payload.get("steel_plants", [])
-    ]
-
-    port_units_details = ports_info.get("ports_list", [])
-    if not port_units_details:
-        port_units_details = [{"port_id": name, "capacity": 0, "utilization": 0.0} for name in PORT_UNITS]
-
-    energy_units_details = energy_info.get("energy_units_list", [])
-    if not energy_units_details:
-        energy_units_details = [{"plant_id": name, "capacity_mw": 0, "utilization": 0.0, "available_mw": 0} for name in ENERGY_UNITS]
-
-    result["em_summaries"] = {
-        "steel_top_candidates": steel_candidates[:3],
-        "ports_info": {
-            "port_headroom_units": ports_info.get("port_headroom_units"),
-            "current_utilization": ports_info.get("current_utilization")
+def _load_mock_data():
+    if os.path.exists(MOCK_PATH):
+        with open(MOCK_PATH, "r") as f:
+            return json.load(f)
+    # fallback sample data if file missing
+    return {
+        "steel_plants": [
+            {"plant_id":"SP1","capacity_tpa":1000000,"utilization":0.7,"capex_estimate_usd":750000,"roi_months":8,"energy_required_mw":0.72},
+            {"plant_id":"SP2","capacity_tpa":1200000,"utilization":0.65,"capex_estimate_usd":950000,"roi_months":10,"energy_required_mw":1.2},
+            {"plant_id":"SP3","capacity_tpa":900000,"utilization":0.6,"capex_estimate_usd":600000,"roi_months":6,"energy_required_mw":0.5},
+            {"plant_id":"SP4","capacity_tpa":1100000,"utilization":0.75,"capex_estimate_usd":820000,"roi_months":9.5,"energy_required_mw":1.1}
+        ],
+        "ports": {
+            "port_headroom_units": 10000,
+            "current_utilization": 0.82,
+            "ports_list":[
+                {"port_id":"PortA-1","capacity":5000,"utilization":0.8},
+                {"port_id":"PortA-2","capacity":4000,"utilization":0.85}
+            ]
         },
-        "energy_info": {
-            "energy_headroom_mw": energy_info.get("energy_headroom_mw"),
-            "energy_available_mw": energy_info.get("energy_available_mw")
+        "energy": {
+            "energy_headroom_mw": 20,
+            "energy_available_mw": 20,
+            "energy_units_list":[
+                {"plant_id":"PP1","capacity_mw":10,"utilization":0.7,"available_mw":3},
+                {"plant_id":"PP2","capacity_mw":15,"utilization":0.6,"available_mw":5}
+            ]
         },
-        "steel_units_details": steel_units_details,
-        "port_units_details": port_units_details,
-        "energy_units_details": energy_units_details
+        "group_systems": {"commodity_index":102.5, "treasury_signal":"neutral", "esg_reporting_required":False}
     }
 
-    result["budget_flag"] = budget_flag
+def _parse_query(query: str) -> Dict[str, Any]:
+    """
+    Very small parser to extract:
+     - target_increase_tpa (e.g., '2 MTPA' -> 2_000_000)
+     - max_roi_months (e.g., '9 months' or '<9 months')
+    """
+    q = query.lower()
+    parsed = {"target_increase_tpa": None, "max_roi_months": None}
+
+    # find patterns like '2 mtpa' or '2 mtpa' or '2 mtpa.'
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(mtpa|mta|m tpa|tpa|tpa\.)", q)
+    if m:
+        # interpret number as million tonnes per annum if unit contains 'mtpa' or 'mta'
+        num = float(m.group(1))
+        if "mt" in m.group(2):  # mtpa
+            parsed["target_increase_tpa"] = int(num * 1_000_000)
+        else:
+            # 'tpa' -> assume raw tonnes
+            parsed["target_increase_tpa"] = int(num)
+
+    # find numeric months constraint
+    m2 = re.search(r"less than\s*(\d+)\s*months|<\s*(\d+)\s*months|within\s*(\d+)\s*months", q)
+    if m2:
+        for g in m2.groups():
+            if g:
+                parsed["max_roi_months"] = int(g)
+                break
+    else:
+        m3 = re.search(r"(\d+)\s*months", q)
+        if m3:
+            parsed["max_roi_months"] = int(m3.group(1))
+
+    # fallback defaults
+    if parsed["target_increase_tpa"] is None:
+        # if no explicit mention, default to 2_000_000 (to match UI default)
+        parsed["target_increase_tpa"] = 2_000_000
+    if parsed["max_roi_months"] is None:
+        parsed["max_roi_months"] = 9
+
+    return parsed
+
+def run_simulation(query: str) -> Dict[str, Any]:
+    """
+    Full simulation: get data (mock/fallback), call EM evaluators and group manager,
+    and assemble results for the UI.
+    """
+    mock = _load_mock_data()
+    steel_plants = mock.get("steel_plants", [])
+    ports = mock.get("ports", {})
+    energy = mock.get("energy", {})
+    group_systems = mock.get("group_systems", {})
+
+    # parse query constraints
+    constraints = _parse_query(query)
+    target_tpa = constraints["target_increase_tpa"]
+    max_roi = constraints["max_roi_months"]
+
+    # run EM evaluations (these return candidate lists and aggregate info)
+    steel_candidates = evaluate_steel(steel_plants, target_tpa)
+    ports_info = evaluate_ports(ports)
+    energy_info = evaluate_energy(energy)
+
+    # orchestrate and pick recommendation
+    result = orchestrate_across_ems(
+        steel_candidates=steel_candidates,
+        ports_info=ports_info,
+        energy_info=energy_info,
+        group_systems=group_systems,
+        required_increase_tpa=target_tpa,
+        max_roi_months=max_roi
+    )
+
+    # Build EM summaries for UI
+    result["em_summaries"] = {
+        "steel_top_candidates": steel_candidates[:5],
+        "steel_units_details": steel_plants,
+        "ports_info": {
+            "port_headroom_units": ports.get("port_headroom_units"),
+            "current_utilization": ports.get("current_utilization")
+        },
+        "port_units_details": ports.get("ports_list", []),
+        "energy_info": {
+            "energy_headroom_mw": energy.get("energy_headroom_mw"),
+            "energy_available_mw": energy.get("energy_available_mw")
+        },
+        "energy_units_details": energy.get("energy_units_list", [])
+    }
+
+    # include parsed constraints for rationale
+    result["query_constraints"] = constraints
     result["query"] = query
     return result
-
-
-def rationale_for_action_plan(query: str, result: dict) -> str:
-    """
-    Build a human-readable rationale that explains why the action plan was given,
-    referencing the exact measurements or diagnostics that drove each action.
-    Returns markdown text suitable for st.markdown().
-    """
-
-    # Pull required numbers safely
-    steel_ex = result.get('explainability', {}).get("steel_em", {})
-    ports_ex = result.get('explainability', {}).get("ports_em", {})
-    energy_ex = result.get('explainability', {}).get("energy_em", {})
-
-    # Candidate-level numbers
-    recommended = result.get('recommended_plant', 'N/A')
-    expected_increase = result.get('expected_increase_pct', 'N/A')
-    energy_required = result.get('energy_required_mw', 'N/A')
-
-    # EM-level metrics
-    spare_capacity = steel_ex.get('spare_capacity', None)
-    capex_penalty = steel_ex.get('capex_penalty', None)
-
-    port_headroom = ports_ex.get('port_headroom_units', result.get('em_summaries', {}).get('ports_info', {}).get('port_headroom_units', 'N/A'))
-    avg_port_util = result.get('em_summaries', {}).get('ports_info', {}).get('current_utilization', 'N/A')
-
-    energy_headroom = energy_ex.get('energy_headroom_mw', result.get('em_summaries', {}).get('energy_info', {}).get('energy_headroom_mw', 'N/A'))
-    energy_available = energy_ex.get('available_mw', result.get('em_summaries', {}).get('energy_info', {}).get('energy_available_mw', 'N/A'))
-
-    # Unit-level diagnostics (examples taken from em_summaries)
-    steel_units = result.get('em_summaries', {}).get('steel_units_details', [])
-    ports_units = result.get('em_summaries', {}).get('port_units_details', [])
-    energy_units = result.get('em_summaries', {}).get('energy_units_details', [])
-
-    # Build rationale lines
-    lines = []
-    lines.append("### Rationale for Action Plan")
-    lines.append("")
-    lines.append(f"**Query:** {query}")
-    lines.append("")
-    lines.append(f"**Recommendation:** Increase output at {recommended} by {expected_increase}.")
-    lines.append("")
-    lines.append("**What the system observed (key data points):**")
-    # Steel observations
-    if spare_capacity is not None:
-        lines.append(f"- Steel diagnostics: spare capacity = {spare_capacity} units (shows available margin at plant level).")
-    else:
-        lines.append(f"- Steel diagnostics: spare capacity not available but candidate ranking indicates available throughput potential.")
-    if capex_penalty is not None:
-        lines.append(f"- Cost signal: capex penalty score = {capex_penalty}. (Used for ranking, not for the action plan.)")
-
-    # Energy observations
-    lines.append(f"- Energy diagnostics: required = {energy_required} MW; available headroom = {energy_headroom} MW (available {energy_available} MW).")
-    if energy_required != 'N/A' and isinstance(energy_headroom, (int, float)):
-        if energy_required <= energy_headroom:
-            lines.append("  → Energy headroom is sufficient to support the proposed uplift without immediate new generation.")
-        else:
-            lines.append("  → Energy headroom is insufficient. Action plan phases energy allocation and suggests off-peak scheduling to mitigate this.")
-
-    # Ports observations
-    lines.append(f"- Ports diagnostics: aggregate port headroom = {port_headroom} units (avg utilization {avg_port_util}).")
-    if isinstance(port_headroom, (int, float)) and result.get('em_summaries', {}).get('steel_top_candidates'):
-        est_increase_units = result['em_summaries']['steel_top_candidates'][0].get('estimated_increase_units', 'N/A')
-        lines.append(f"  → Estimated additional shipments = {est_increase_units} units. If estimated shipments <= headroom, single-phase rollout possible; otherwise staging/staggering required.")
-
-    # Unit-level evidence examples
-    lines.append("")
-    lines.append("**Sample unit-level evidence used to form actions:**")
-    if steel_units:
-        # show 1-2 steel unit examples
-        ex = steel_units[0]
-        lines.append(f"- Steel unit example: {ex['plant_id']} capacity {ex['capacity']}, utilization {ex['utilization']}.")
-    if ports_units:
-        ex = ports_units[0]
-        lines.append(f"- Port unit example: {ex.get('port_id')} capacity {ex.get('capacity')} util {ex.get('utilization')}.")
-    if energy_units:
-        ex = energy_units[0]
-        lines.append(f"- Power plant example: {ex.get('plant_id')} capacity {ex.get('capacity_mw')} MW, available {ex.get('available_mw')} MW, util {ex.get('utilization')}.")
-
-    # Tie observations to action plan steps
-    lines.append("")
-    lines.append("**How observations map to action steps:**")
-    lines.append("- Because the steel diagnostics show spare capacity, the action plan recommends an operational ramp and a short pilot to validate throughput and quality.")
-    lines.append("- Because the energy headroom is shown as (or not) sufficient, the action plan specifies energy allocation steps and off-peak scheduling.")
-    lines.append("- Because port headroom is constrained/limited, the action plan prescribes staggered shipments, temporary staging, and close Logistics coordination.")
-    lines.append("")
-    lines.append("**Confidence & next checks:**")
-    lines.append("- Pilot performance metrics to track: throughput rate, energy draw profile, shipping throughput, and quality metrics.")
-    lines.append("- Re-check energy dispatch and port slot confirmations before full rollout.")
-    if result.get("budget_flag", False):
-        lines.append("- Note: Candidate ranking was influenced by the CapEx filter; ensure operational feasibility checks are prioritized.")
-
-    return "\n\n".join(lines)
