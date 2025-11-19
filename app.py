@@ -1,19 +1,32 @@
+# app.py
 import streamlit as st
 import plotly.graph_objects as go
-from decision_engine import run_simulation, explain_decision
+from decision_engine import run_simulation, rationale_for_action_plan
+
+# NOTE (internal only): path to uploaded operational-flow file (not shown in UI, kept for tooling)
+DOC_PATH = "/mnt/data/Operational Flow.docx"
 
 st.set_page_config(page_title="Original Enterprise AI – Group Manager Cross-EM Demo", layout="wide")
 st.title("🧠 Group Manager Cross-EM Demo — Concept Prototype")
 
-st.markdown("""
+st.markdown(
+    """
 **This prototype visualizes the concept idea and data flow for the multi-layer Original Enterprise AI architecture.**  
 - Group Manager runs cross-enterprise simulations across Enterprise Managers.  
 - Enterprise Managers evaluate company units (HQ + Local Nodes).  
 - Local Nodes collect telemetry from OT systems at Ports & Plants.
-""")
+"""
+)
 
+# Default strategic query requested by you
 query = st.text_input("Strategic Query:", "How can we increase the steel production 2 MTPA.")
-capex_limit = st.number_input("Optional CapEx limit (USD):", value=0.0, min_value=0.0, step=50000.0, format="%.2f")
+capex_limit = st.number_input(
+    "Optional CapEx limit (USD):",
+    value=0.0,
+    min_value=0.0,
+    step=50000.0,
+    format="%.2f"
+)
 
 if st.button("Run Simulation"):
     with st.spinner("Running cross-EM simulation..."):
@@ -23,43 +36,60 @@ if st.button("Run Simulation"):
 
             # Recommendation card
             st.subheader("Group Manager Recommendation")
-            st.markdown(f"**Plant:** {result['recommended_plant']}")
-            st.markdown(f"**Expected Increase:** {result['expected_increase_pct']}")
-            st.markdown(f"**Investment (USD):** ${result['investment_usd']:,}")
-            st.markdown(f"**ROI:** {result['roi_period_months']} months")
-            st.markdown(f"**Energy Required:** {result['energy_required_mw']} MW")
+            st.markdown(f"**Plant:** {result.get('recommended_plant', 'N/A')}")
+            st.markdown(f"**Expected Increase:** {result.get('expected_increase_pct', 'N/A')}")
+            inv = result.get('investment_usd')
+            st.markdown(f"**Investment (USD):** ${inv:,}" if isinstance(inv, (int, float)) else f"**Investment (USD):** {inv}")
+            st.markdown(f"**ROI:** {result.get('roi_period_months', 'N/A')} months")
+            st.markdown(f"**Energy Required:** {result.get('energy_required_mw', 'N/A')} MW")
 
             # Show action plan (clear instruction) instead of generic summary or CapEx note
             action = result.get('action_plan', result.get('summary', 'No action plan available.'))
             st.info(action)
 
-            # EM summaries and full unit details (no provenance, no doc references)
+            # Enterprise Manager Summaries — Unit Details (no provenance, no document references)
             st.subheader("Enterprise Manager Summaries — Unit Details")
 
             cols = st.columns(3)
             with cols[0]:
                 st.markdown("**Steel EM — Top Candidates**")
-                for c in result["em_summaries"]["steel_top_candidates"]:
-                    st.write(f"{c['plant_id']}: +{c['feasible_increase_pct']}% — CapEx ${c['capex_estimate_usd']:,} — Energy {c['energy_required_mw']} MW")
+                for c in result["em_summaries"].get("steel_top_candidates", []):
+                    st.write(
+                        f"{c.get('plant_id','N/A')}: +{c.get('feasible_increase_pct','N/A')}% — "
+                        f"CapEx ${c.get('capex_estimate_usd','N/A'):,} — Energy {c.get('energy_required_mw','N/A')} MW"
+                    )
                 st.markdown("**All Steel Units (Company B):**")
                 for su in result["em_summaries"].get("steel_units_details", []):
-                    st.write(f"- {su['plant_id']}: capacity {su['capacity']} units, utilization {su['utilization']}, capex est ${su['capex_estimate_usd']:,}, ROI {su.get('roi_months','N/A')} months")
+                    st.write(
+                        f"- {su.get('plant_id','N/A')}: capacity {su.get('capacity','N/A')} units, "
+                        f"utilization {su.get('utilization','N/A')}, capex est ${su.get('capex_estimate_usd','N/A'):,}, "
+                        f"ROI {su.get('roi_months','N/A')} months"
+                    )
 
             with cols[1]:
                 st.markdown("**Ports EM — Aggregate**")
-                p = result["em_summaries"]["ports_info"]
-                st.write(f"Aggregate port headroom: {p['port_headroom_units']} units (avg util {p['current_utilization']})")
+                p = result["em_summaries"].get("ports_info", {})
+                st.write(
+                    f"Aggregate port headroom: {p.get('port_headroom_units','N/A')} units "
+                    f"(avg util {p.get('current_utilization','N/A')})"
+                )
                 st.markdown("**All Port Units (Company A):**")
                 for port in result["em_summaries"].get("port_units_details", []):
-                    st.write(f"- {port['port_id']}: capacity {port['capacity']}, utilization {port['utilization']}")
+                    st.write(f"- {port.get('port_id','N/A')}: capacity {port.get('capacity','N/A')}, utilization {port.get('utilization','N/A')}")
 
             with cols[2]:
                 st.markdown("**Energy EM — Aggregate**")
-                e = result["em_summaries"]["energy_info"]
-                st.write(f"Aggregate headroom: {e['energy_headroom_mw']} MW (avail {e['energy_available_mw']} MW)")
+                e = result["em_summaries"].get("energy_info", {})
+                st.write(
+                    f"Aggregate headroom: {e.get('energy_headroom_mw','N/A')} MW "
+                    f"(avail {e.get('energy_available_mw','N/A')} MW)"
+                )
                 st.markdown("**All Power Plant Units (Company C):**")
                 for plant in result["em_summaries"].get("energy_units_details", []):
-                    st.write(f"- {plant['plant_id']}: capacity {plant['capacity_mw']} MW, utilization {plant['utilization']}, avail {plant.get('available_mw','N/A')} MW")
+                    st.write(
+                        f"- {plant.get('plant_id','N/A')}: capacity {plant.get('capacity_mw','N/A')} MW, "
+                        f"utilization {plant.get('utilization','N/A')}, avail {plant.get('available_mw','N/A')} MW"
+                    )
 
             # Sankey visualization to show architecture flow (illustrative)
             nodes = [
@@ -81,11 +111,12 @@ if st.button("Run Simulation"):
             fig.update_layout(title_text="System Connectivity & Data Flow (concept)", font_size=11)
             st.plotly_chart(fig, use_container_width=True)
 
-            # Explainable narrative (formatted)
-            st.subheader("Explainable Narrative")
-            st.markdown(explain_decision(query, result))
+            # Rationale for Action Plan (explains why the plan was given, based on data)
+            st.subheader("Rationale for Action Plan")
+            rationale_md = rationale_for_action_plan(query, result)
+            st.markdown(rationale_md)
 
-            # Budget note: user-visible but neutral
+            # Budget note: user-visible but neutral (keeps user informed)
             if result.get("budget_flag", False):
                 st.warning("The CapEx limit filtered out all candidates; the recommendation shows the top candidate and flags the budget constraint.")
 
