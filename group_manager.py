@@ -2,6 +2,7 @@
 group_manager.py
 
 Group Manager orchestration across EM outputs and group-level systems.
+Selects candidate that satisfies energy & port headroom and CapEx if provided.
 """
 from typing import Dict, Any, List
 
@@ -23,7 +24,7 @@ def orchestrate_across_ems(steel_candidates: List[Dict[str, Any]],
         port_ok = c["estimated_increase_units"] <= port_headroom
         if energy_ok and port_ok:
             rationale = {
-                "why": "Meets energy and port constraints and aligns with group signals",
+                "why": "Meets energy and port headroom constraints and aligns with group signals",
                 "commodity_price_index": group_systems.get("commodity_index"),
                 "energy_headroom_mw": energy_headroom,
                 "port_headroom_units": port_headroom
@@ -34,7 +35,7 @@ def orchestrate_across_ems(steel_candidates: List[Dict[str, Any]],
                 "investment_usd": c["capex_estimate_usd"],
                 "roi_period_months": c["roi_months"],
                 "energy_required_mw": c["energy_required_mw"],
-                "summary": f"Select {c['plant_id']} expansion — meets cross-EM constraints and group-level signals.",
+                "summary": f"Select {c['plant_id']} expansion — passes cross-EM checks.",
                 "justification": rationale,
                 "explainability": {
                     "steel_em": c.get("explainability", {}),
@@ -43,6 +44,7 @@ def orchestrate_across_ems(steel_candidates: List[Dict[str, Any]],
                 }
             }
 
+    # No candidate passed strict constraints — return top candidate with suggested mitigations
     top = steel_candidates[0]
     breaches = {
         "energy_required_mw": top["energy_required_mw"],
@@ -55,7 +57,7 @@ def orchestrate_across_ems(steel_candidates: List[Dict[str, Any]],
     if breaches["energy_required_mw"] > breaches["energy_headroom_mw"]:
         mitigations.append("increase energy supply or phase rollout")
     if breaches["estimated_increase_units"] > breaches["port_headroom_units"]:
-        mitigations.append("stagger shipments or augment port capacity")
+        mitigations.append("stagger shipments or increase port throughput")
     if breaches["capex_exceeded"]:
         mitigations.append("raise CapEx budget or choose lower-capex option")
 
