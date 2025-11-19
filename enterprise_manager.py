@@ -1,94 +1,72 @@
+# enterprise_manager.py
 """
-enterprise_manager.py
-
-Three Enterprise Managers:
-- evaluate_steel()
-- evaluate_ports()
-- evaluate_energy()
-
-Each EM consumes company HQ inputs (simulated) and Local Node payloads.
-Returns per-unit lists and aggregated metrics.
+Provides simple evaluation functions for each Enterprise Manager (steel, ports, energy).
+These are intentionally straightforward and deterministic so the prototype is explainable.
 """
-from typing import Dict, Any, List
 
-def evaluate_steel(company_hq: Dict[str, Any], local_node_payload: Dict[str, Any], budget_usd: float = None) -> List[Dict[str, Any]]:
-    plants = local_node_payload.get("steel_plants", [])
-    energy_avail = local_node_payload.get("energy", {}).get("available_mw", 0)
+from typing import List, Dict, Any
 
-    results = []
-    for p in plants:
-        spare = p["capacity"] * (1 - p["utilization"])
-        capex_penalty = 1_000_000 / (p["capex_estimate_usd"] + 1)
-        roi_bonus = 12 / (p["roi_months"] + 1)
-        energy_score = energy_avail / (1 + p["capacity"]/1000)
-        score = spare * 0.6 + capex_penalty * 0.25 + roi_bonus * 0.15 + energy_score * 0.1
-        feasible_pct = min(25, (spare / p["capacity"]) * 100) if p["capacity"] > 0 else 0
-        increase_units = p["capacity"] * feasible_pct / 100
-        energy_required = round(increase_units * 0.004, 2)
+def evaluate_steel(steel_plants: List[Dict[str, Any]], target_increase_tpa: int) -> List[Dict[str, Any]]:
+    """
+    For each plant, compute a candidate object describing a realistic uplift,
+    its capex, ROI, energy need and an explainability dict.
+    - feasible_increase_tpa: estimated additional annual tonnes plant can add with operational measures
+    """
+    candidates = []
+    for p in steel_plants:
+        capacity = p.get("capacity_tpa", 0)
+        util = p.get("utilization", 0.7)
+        spare_tpa = int(max(0, capacity * (1 - util)))  # rough spare capacity
+        # Estimate feasible increase: min(spare, 20% of capacity) as conservative operational uplift
+        feasible = min(spare_tpa, int(0.20 * capacity))
+        # If plant is underutilised <0.65, allow slightly larger operational uplift
+        if util < 0.65:
+            feasible = min(spare_tpa, int(0.30 * capacity))
 
-        results.append({
-            "plant_id": p["plant_id"],
-            "score": round(score, 3),
-            "feasible_increase_pct": round(feasible_pct, 2),
-            "estimated_increase_units": round(increase_units, 2),
-            "energy_required_mw": energy_required,
-            "capex_estimate_usd": p["capex_estimate_usd"],
-            "roi_months": p["roi_months"],
-            "explainability": {"spare_capacity": round(spare,2), "capex_penalty": round(capex_penalty,3)}
-        })
+        # energy and shipments scale roughly with feasible uplift
+        energy_required_mw = p.get("energy_required_mw", 0.5) * (feasible / max(1, int(capacity*0.1)))
+        # estimate ROI roughly as capex / (annual incremental margin) -> convert to months
+        capex = p.get("capex_estimate_usd", 500000)
+        # assume incremental monthly profit from uplift: (feasible tpa / capacity_tpa)*100000 USD (simple)
+        incr_monthly_income = max(1000, (feasible / max(1, capacity)) * 100000)
+        roi_months = max(1, round(capex / incr_monthly_income, 1))
 
-    results.sort(key=lambda x: x["score"], reverse=True)
-    if budget_usd is not None:
-        results = [r for r in results if r["capex_estimate_usd"] <= budget_usd]
-    return results
-
-def evaluate_ports(company_hq: Dict[str, Any], local_node_payload: Dict[str, Any]) -> Dict[str, Any]:
-    ports_raw = local_node_payload.get("ports", {})
-    base_capacity = ports_raw.get("port2_capacity", 15000)
-    base_util = ports_raw.get("current_utilization", 0.84)
-
-    ports_list = []
-    for i in range(4):
-        cap = int(base_capacity * (0.9 + 0.05 * i))
-        util = round(min(0.95, base_util + (i * 0.01)), 2)
-        ports_list.append({
-            "port_id": f"Port {i+1}",
-            "capacity": cap,
-            "utilization": util
-        })
-
-    total_headroom = sum([p["capacity"] * (1 - p["utilization"]) for p in ports_list])
-    return {
-        "port_headroom_units": round(total_headroom, 2),
-        "current_utilization": round(sum([p["utilization"] for p in ports_list]) / len(ports_list), 2),
-        "throughput_score": round(total_headroom / (sum([p["capacity"] for p in ports_list]) + 1), 3),
-        "ports_list": ports_list,
-        "explainability": {"port_headroom_units": round(total_headroom,2)}
-    }
-
-def evaluate_energy(company_hq: Dict[str, Any], local_node_payload: Dict[str, Any]) -> Dict[str, Any]:
-    energy_raw = local_node_payload.get("energy", {})
-    avail = energy_raw.get("available_mw", 20)
-    cost = energy_raw.get("cost_per_mw_usd", 1100)
-
-    energy_units = []
-    shares = [0.4, 0.35, 0.25]
-    for i, s in enumerate(shares):
-        available_mw = round(avail * s, 2)
-        cap = round(max(10, available_mw * 2.5), 2)
-        util = round(min(0.98, 0.6 + i * 0.1), 2)
-        energy_units.append({
-            "plant_id": f"PP{i+1}",
-            "capacity_mw": cap,
+        candidate = {
+            "plant_id": p.get("plant_id"),
+            "capacity_tpa": capacity,
             "utilization": util,
-            "available_mw": available_mw
-        })
+            "feasible_increase_tpa": feasible,
+            "energy_required_mw": round(max(0.1, energy_required_mw), 3),
+            "estimated_increase_units": feasible,  # reuse
+            "capex_estimate_usd": capex,
+            "roi_months": roi_months,
+            "explainability": {
+                "spare_capacity_tpa": spare_tpa,
+                "utilization": util
+            }
+        }
+        candidates.append(candidate)
 
-    headroom = max(0.0, avail - 2.0)
-    return {
-        "energy_available_mw": avail,
-        "energy_headroom_mw": round(headroom, 2),
-        "energy_units_list": energy_units,
-        "energy_cost_per_mw_usd": cost,
-        "explainability": {"available_mw": avail, "reserve_buffer_mw": 2.0}
-    }
+    # sort by best combination: feasible increase desc, roi asc
+    candidates = sorted(candidates, key=lambda x: (-x["feasible_increase_tpa"], x["roi_months"]))
+    return candidates
+
+def evaluate_ports(ports_payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Return aggregate port headroom and per-port info.
+    """
+    headroom = ports_payload.get("port_headroom_units", 0)
+    avg_util = ports_payload.get("current_utilization", 0.85)
+    ports_list = ports_payload.get("ports_list", [])
+    explain = {"port_headroom_units": headroom, "current_utilization": avg_util}
+    return {"port_headroom_units": headroom, "current_utilization": avg_util, "ports_list": ports_list, "explainability": explain}
+
+def evaluate_energy(energy_payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Return energy headroom and per-plant availability.
+    """
+    headroom = energy_payload.get("energy_headroom_mw", 0)
+    avail = energy_payload.get("energy_available_mw", 0)
+    units = energy_payload.get("energy_units_list", [])
+    explain = {"energy_headroom_mw": headroom, "energy_available_mw": avail}
+    return {"energy_headroom_mw": headroom, "energy_available_mw": avail, "energy_units_list": units, "explainability": explain}
