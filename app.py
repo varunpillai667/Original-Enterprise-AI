@@ -1,9 +1,9 @@
-# app.py (final - runs simulation + diagram automatically)
+# app.py
 import streamlit as st
 import plotly.graph_objects as go
 from decision_engine import run_simulation, rationale_for_action_plan
 
-# INTERNAL: local path to uploaded doc (kept for tooling only; NOT shown in UI)
+# INTERNAL (tooling only): local path to uploaded doc (not shown in UI)
 FILE_URL = "/mnt/data/Operational Flow.docx"
 
 st.set_page_config(page_title="Original Enterprise AI – Group Manager Cross-EM Demo", layout="wide")
@@ -12,13 +12,14 @@ st.title("🧠 Group Manager Cross-EM Demo — Concept Prototype (Diagram)")
 st.markdown(
     """
 This prototype visualizes the concept idea and data flow for the multi-layer Original Enterprise AI architecture.
+
 - Group Manager runs cross-enterprise simulations across Enterprise Managers.
 - Enterprise Managers evaluate company units (HQ + Local Nodes).
 - Local Nodes collect telemetry from OT systems at each factory/port/power plant.
 """
 )
 
-# Updated default strategic query (exact wording requested)
+# Exact strategic query requested
 query = st.text_input("Strategic Query:", "How can we increase the steel production by 2 MTPA.")
 capex_limit = st.number_input(
     "Optional CapEx limit (USD):",
@@ -28,121 +29,85 @@ capex_limit = st.number_input(
     format="%.2f"
 )
 
-def build_diagram_figure(steel_local_count=4, ports_local_count=4, energy_local_count=3):
+def build_diagram_figure():
     """
-    Build a compact, readable diagram showing:
-      - OT Systems -> multiple Local Nodes per EM -> each EM -> Group Manager -> Recommendation
-    Local node counts are parameterized (default: 4 steel, 4 ports, 3 energy).
+    Clean diagram:
+    OT Systems → Local Nodes (multiple units for each EM) → Steel EM / Ports EM / Energy EM → Group Manager → Recommendation
     """
     fig = go.Figure()
-    # use normalized coordinates 0..1 for layout; we'll map fonts/colors for readability
-    # base canvas
-    fig.update_layout(width=1000, height=360, plot_bgcolor="white",
-                      margin=dict(l=10, r=10, t=10, b=10), font=dict(color="#111111"))
+    fig.update_layout(
+        width=1000, height=320,
+        plot_bgcolor="white",
+        margin=dict(l=10, r=10, t=10, b=10),
+        font=dict(color="#111111")
+    )
 
-    # main boxes positions
-    # OT Systems (left)
-    ot = {"x": 0.06, "y": 0.5, "w": 0.16, "h": 0.20, "label": "OT Systems\n(SCADA / MES / TOS)", "color": "#F3F6FA"}
+    # Helper for drawing boxes
+    def draw_box(x, y, w, h, label, color):
+        fig.add_shape(
+            type="rect",
+            x0=x - w/2, y0=y - h/2,
+            x1=x + w/2, y1=y + h/2,
+            line=dict(color="#333333", width=1),
+            fillcolor=color
+        )
+        fig.add_annotation(
+            x=x, y=y, text=f"<b>{label}</b>",
+            showarrow=False, font=dict(size=12, color="#111111")
+        )
 
-    # Local nodes clusters for each EM (as small repeated boxes visually)
-    ln_x = 0.22
-    steel_y = 0.28
-    ports_y = 0.5
-    energy_y = 0.72
-    ln_w = 0.12
-    ln_h = 0.08
+    # Main boxes (positions chosen for clarity)
+    draw_box(0.08, 0.5, 0.16, 0.22, "OT Systems\n(SCADA / MES / TOS)", "#F3F6FA")
+    draw_box(0.26, 0.28, 0.18, 0.16, "Local Nodes\n(multiple units\nfor Steel EM)", "#EAF4FF")
+    draw_box(0.26, 0.50, 0.18, 0.16, "Local Nodes\n(multiple units\nfor Ports EM)", "#EAF4FF")
+    draw_box(0.26, 0.72, 0.18, 0.16, "Local Nodes\n(multiple units\nfor Energy EM)", "#EAF4FF")
 
-    em_x = 0.44
-    em_w = 0.16
-    em_h = 0.14
+    draw_box(0.48, 0.28, 0.18, 0.14, "Steel EM", "#FDEEEE")
+    draw_box(0.48, 0.50, 0.18, 0.14, "Ports EM", "#EEF9F0")
+    draw_box(0.48, 0.72, 0.18, 0.14, "Energy EM", "#FFF7E6")
 
-    gm_x = 0.72
-    gm = {"x": gm_x, "y": 0.5, "w": 0.18, "h": 0.22, "label": "Group Manager", "color": "#E9F2FF"}
-    rec = {"x": 0.92, "y": 0.5, "w": 0.12, "h": 0.18, "label": "Recommendation", "color": "#E8FFF0"}
+    draw_box(0.72, 0.50, 0.18, 0.20, "Group Manager", "#E9F2FF")
+    draw_box(0.92, 0.50, 0.12, 0.16, "Recommendation", "#E8FFF0")
 
-    # draw OT box
-    def rect_add(x, y, w, h, label, color):
-        x0, x1 = x - w/2, x + w/2
-        y0, y1 = y - h/2, y + h/2
-        fig.add_shape(type="rect", x0=x0, y0=y0, x1=x1, y1=y1,
-                      xref="x", yref="y", line=dict(color="#333333", width=1),
-                      fillcolor=color)
-        fig.add_annotation(x=x, y=y, text=f"<b>{label}</b>", showarrow=False,
-                           font=dict(size=12, color="#111111"))
+    # Helper for arrows
+    def arrow(from_x, from_y, to_x, to_y, w=2):
+        fig.add_annotation(
+            x=to_x, y=to_y,
+            ax=from_x, ay=from_y,
+            xref="x", yref="y",
+            showarrow=True,
+            arrowhead=3, arrowsize=1.1,
+            arrowwidth=w, arrowcolor="#555555"
+        )
 
-    rect_add(ot["x"], ot["y"], ot["w"], ot["h"], ot["label"], ot["color"])
+    # OT → Local Node clusters
+    arrow(0.16, 0.50, 0.17, 0.28)
+    arrow(0.16, 0.50, 0.17, 0.50)
+    arrow(0.16, 0.50, 0.17, 0.72)
 
-    # helper to place multiple local node boxes (small) per EM
-    def add_local_nodes(cluster_x, cluster_y, count, title):
-        # vertical spacing
-        gap = 0.02
-        total_h = (count * ln_h) + ((count-1) * gap)
-        start_y = cluster_y - total_h/2 + ln_h/2
-        y_positions = [start_y + i*(ln_h+gap) for i in range(count)]
-        node_ids = []
-        for i, y in enumerate(y_positions):
-            label = f"Local Node\n{title}-{i+1}"
-            rect_add(cluster_x, y, ln_w, ln_h, label, "#EEF7FF")
-            node_ids.append((cluster_x + ln_w/2, y))  # right center for arrow end
-        return node_ids
+    # Local Nodes → each EM
+    arrow(0.35, 0.28, 0.39, 0.28)
+    arrow(0.35, 0.50, 0.39, 0.50)
+    arrow(0.35, 0.72, 0.39, 0.72)
 
-    # add steel local nodes
-    steel_locals = add_local_nodes(ln_x, steel_y, steel_local_count, "Steel")
-    ports_locals = add_local_nodes(ln_x, ports_y, ports_local_count, "Port")
-    energy_locals = add_local_nodes(ln_x, energy_y, energy_local_count, "Energy")
+    # EMs → Group Manager
+    arrow(0.57, 0.28, 0.63, 0.50)
+    arrow(0.57, 0.50, 0.63, 0.50)
+    arrow(0.57, 0.72, 0.63, 0.50)
 
-    # add EM boxes
-    rect_add(em_x, steel_y, em_w, em_h, "Steel EM", "#FDEEEE")
-    rect_add(em_x, ports_y, em_w, em_h, "Ports EM", "#EEF9F0")
-    rect_add(em_x, energy_y, em_w, em_h, "Energy EM", "#FFF7E6")
+    # Group Manager → Recommendation
+    arrow(0.81, 0.50, 0.86, 0.50, w=2.5)
 
-    # add Group Manager and Recommendation
-    rect_add(gm["x"], gm["y"], gm["w"], gm["h"], gm["label"], gm["color"])
-    rect_add(rec["x"], rec["y"], rec["w"], rec["h"], rec["label"], rec["color"])
+    # Caption under diagram
+    fig.add_annotation(
+        x=0.5, y=0.04,
+        text="Data flow: OT telemetry → Local Nodes (per unit) → EMs → Group Manager → Recommendation",
+        showarrow=False,
+        font=dict(size=11, color="#222222")
+    )
 
-    # draw arrows (OT -> each local node cluster center)
-    # single arrow from OT right-center to each cluster left side to avoid clutter
-    ot_right_x = ot["x"] + ot["w"]/2
-    def add_arrow(ax, ay, bx, by, width=2):
-        fig.add_annotation(x=bx, y=by, ax=ax, ay=ay, xref="x", yref="y", axref="x", ayref="y",
-                           showarrow=True, arrowhead=3, arrowsize=1.0, arrowwidth=width, arrowcolor="#6b6b6b")
-
-    # cluster centroids
-    def cluster_centroid(locals):
-        xs = [p[0] for p in locals]
-        ys = [p[1] for p in locals]
-        return (min(xs)-0.06, sum(ys)/len(ys))  # a bit left of first local node
-
-    sx, sy = cluster_centroid(steel_locals)
-    px, py = cluster_centroid(ports_locals)
-    ex, ey = cluster_centroid(energy_locals)
-
-    add_arrow(ot_right_x, ot["y"], sx, sy)
-    add_arrow(sx + 0.12, sy, em_x - em_w/2, steel_y)   # steel locals -> steel EM
-    add_arrow(px + 0.12, py, em_x - em_w/2, ports_y)   # ports locals -> ports EM
-    add_arrow(ex + 0.12, ey, em_x - em_w/2, energy_y)  # energy locals -> energy EM
-
-    # EMs -> Group Manager (one arrow each)
-    em_right_x = em_x + em_w/2
-    add_arrow(em_right_x, steel_y, gm["x"] - gm["w"]/2, gm["y"])
-    add_arrow(em_right_x, ports_y, gm["x"] - gm["w"]/2, gm["y"])
-    add_arrow(em_right_x, energy_y, gm["x"] - gm["w"]/2, gm["y"])
-
-    # Group Manager -> Recommendation
-    gm_right = gm["x"] + gm["w"]/2
-    rec_left = rec["x"] - rec["w"]/2
-    add_arrow(gm_right, gm["y"], rec_left, rec["y"], width=2.5)
-
-    # small caption under diagram
-    fig.add_annotation(x=0.5, y=0.03,
-                       text="Data flow: OT telemetry → Local Nodes (per unit) → Enterprise Managers → Group Manager → Recommendation",
-                       showarrow=False, font=dict(size=11, color="#222222"))
-
-    # hide axes
     fig.update_xaxes(visible=False, range=[0,1])
     fig.update_yaxes(visible=False, range=[0,1])
-
-    fig.update_layout(height=360, margin=dict(l=10, r=10, t=10, b=10))
     return fig
 
 # Run Simulation (single action: run + diagram)
@@ -152,7 +117,7 @@ if st.button("Run Simulation"):
             capex_value = capex_limit if capex_limit > 0 else None
             result = run_simulation(query, capex_value)
 
-            # Recommendation card
+            # Recommendation card (concise)
             st.subheader("Group Manager Recommendation")
             st.markdown(f"**Plant:** {result.get('recommended_plant', 'N/A')}")
             st.markdown(f"**Expected Increase:** {result.get('expected_increase_pct', 'N/A')}")
@@ -161,11 +126,11 @@ if st.button("Run Simulation"):
             st.markdown(f"**ROI:** {result.get('roi_period_months', 'N/A')} months")
             st.markdown(f"**Energy Required:** {result.get('energy_required_mw', 'N/A')} MW")
 
-            # Show action plan clearly
+            # Action plan (clear instruction)
             action = result.get('action_plan', result.get('summary', 'No action plan available.'))
             st.info(action)
 
-            # Unit summaries
+            # Unit summaries (compact)
             st.subheader("Enterprise Manager Summaries — Unit Details")
             cols = st.columns(3)
             with cols[0]:
@@ -206,22 +171,17 @@ if st.button("Run Simulation"):
                         f"utilization {plant.get('utilization','N/A')}, avail {plant.get('available_mw','N/A')} MW"
                     )
 
-            # Render the diagram automatically with counts from mock_data length
-            steel_count = len(result["em_summaries"].get("steel_units_details", [])) or 4
-            ports_count = len(result["em_summaries"].get("port_units_details", [])) or 4
-            energy_count = len(result["em_summaries"].get("energy_units_details", [])) or 3
-            fig = build_diagram_figure(steel_local_count=steel_count,
-                                       ports_local_count=ports_count,
-                                       energy_local_count=energy_count)
+            # Render the simplified diagram
             st.subheader("Data Flow Diagram")
+            fig = build_diagram_figure()
             st.plotly_chart(fig, use_container_width=True)
 
-            # Rationale
+            # Rationale for action plan
             st.subheader("Rationale for Action Plan")
             rationale_md = rationale_for_action_plan(query, result)
             st.markdown(rationale_md)
 
-            # budget info (neutral)
+            # Neutral budget notice if applicable
             if result.get("budget_flag", False):
                 st.warning("The CapEx limit filtered out all candidates; the recommendation shows the top candidate and flags the budget constraint.")
 
