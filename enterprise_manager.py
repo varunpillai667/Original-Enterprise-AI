@@ -1,21 +1,16 @@
 """
 enterprise_manager.py
 
-Provides three Enterprise Managers:
-- Steel EM: uses company HQ data + Local Node telemetry
-- Ports EM: uses company HQ data + Local Node telemetry
-- Energy EM: uses company HQ data + Local Node telemetry
+Three Enterprise Managers:
+- evaluate_steel()
+- evaluate_ports()
+- evaluate_energy()
 
-Each EM returns a compact explainable summary with a `data_sources` field
-that indicates whether the decision used Company HQ data, Local Node data, or both.
+Each EM consumes company HQ inputs (simulated) and Local Node payloads.
 """
 from typing import Dict, Any, List
 
 def evaluate_steel(company_hq: Dict[str, Any], local_node_payload: Dict[str, Any], budget_usd: float = None) -> List[Dict[str, Any]]:
-    """
-    Company HQ contains ERP and financial constraints; local_node_payload contains OT signals.
-    Returns ranked candidate expansions with explainability and data_sources metadata.
-    """
     plants = local_node_payload.get("steel_plants", [])
     energy_avail = local_node_payload.get("energy", {}).get("available_mw", 0)
 
@@ -38,8 +33,7 @@ def evaluate_steel(company_hq: Dict[str, Any], local_node_payload: Dict[str, Any
             "energy_required_mw": energy_required,
             "capex_estimate_usd": p["capex_estimate_usd"],
             "roi_months": p["roi_months"],
-            "explainability": {"spare_capacity": round(spare,2), "capex_penalty": round(capex_penalty,3)},
-            "data_sources": ["Company_HQ", "Local_Node"]  # clearly indicate both sources were used
+            "explainability": {"spare_capacity": round(spare,2), "capex_penalty": round(capex_penalty,3)}
         })
 
     results.sort(key=lambda x: x["score"], reverse=True)
@@ -47,11 +41,7 @@ def evaluate_steel(company_hq: Dict[str, Any], local_node_payload: Dict[str, Any
         results = [r for r in results if r["capex_estimate_usd"] <= budget_usd]
     return results
 
-
 def evaluate_ports(company_hq: Dict[str, Any], local_node_payload: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Ports EM analyzes company HQ logistics planning + Local Node TOS telemetry.
-    """
     ports = local_node_payload.get("ports", {})
     cap = ports.get("port2_capacity", 0)
     util = ports.get("current_utilization", 0)
@@ -61,15 +51,10 @@ def evaluate_ports(company_hq: Dict[str, Any], local_node_payload: Dict[str, Any
         "port_headroom_units": round(headroom,2),
         "current_utilization": util,
         "throughput_score": round(headroom/(cap+1),3),
-        "explainability": {"port_headroom_units": round(headroom,2)},
-        "data_sources": ["Company_HQ", "Local_Node"]
+        "explainability": {"port_headroom_units": round(headroom,2)}
     }
 
-
 def evaluate_energy(company_hq: Dict[str, Any], local_node_payload: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Energy EM uses company treasury/planning info + Local Node SCADA telemetry to report headroom.
-    """
     energy = local_node_payload.get("energy", {})
     avail = energy.get("available_mw", 0)
     cost = energy.get("cost_per_mw_usd", 0)
@@ -79,6 +64,5 @@ def evaluate_energy(company_hq: Dict[str, Any], local_node_payload: Dict[str, An
         "energy_available_mw": avail,
         "energy_headroom_mw": round(headroom,2),
         "energy_cost_per_mw_usd": cost,
-        "explainability": {"available_mw": avail, "reserve_buffer_mw": reserve},
-        "data_sources": ["Company_HQ", "Local_Node"]
+        "explainability": {"available_mw": avail, "reserve_buffer_mw": reserve}
     }
