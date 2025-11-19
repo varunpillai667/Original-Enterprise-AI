@@ -4,7 +4,6 @@ import plotly.graph_objects as go
 from decision_engine import run_simulation  # decision_engine returns result dict including summary, action_plan, justification, etc.
 
 # INTERNAL (tooling only): local path to uploaded doc (not shown in UI)
-# File URL (tooling): /mnt/data/Operational Flow.docx
 FILE_URL = "/mnt/data/Operational Flow.docx"
 
 st.set_page_config(page_title="Original Enterprise AI Concept Prototype", layout="wide")
@@ -17,15 +16,15 @@ st.markdown(
 A strategic query has been pre-filled as an example. The results shown after running the simulation are produced from assumed sample data for demonstration purposes only.
 
 **About Group X (example):**  
-Group X is a sample industrial group consisting of three companies — a ports company, a steel manufacturing company, and an energy generation company. This prototype demonstrates how their operational and enterprise data would flow from Local Nodes to Enterprise Managers and finally to the Group Manager.
+Group X is a sample industrial group consisting of: **4 ports, 4 steel production plants, and 3 power plants**.  
+This prototype demonstrates how their operational and enterprise data would flow from Local Nodes to Enterprise Managers and finally to the Group Manager.
 
 Each Enterprise Manager can independently produce operational recommendations for the units and systems connected to it at the company level.  
-However, Enterprise Managers cannot access the Group Manager or any cross-enterprise data.  
-Only the Group Manager performs cross-enterprise reasoning by combining insights from multiple Enterprise Managers.
+Enterprise Managers cannot access the Group Manager or any cross-enterprise data. Only the Group Manager performs cross-enterprise reasoning by combining insights from multiple Enterprise Managers.
 """
 )
 
-# Default strategic query (as requested earlier)
+# Default strategic query (user requested exact phrasing)
 default_query = (
     "HOW CAN WE INCREASE THE STEEL PRODUCTION BY 2 MTPA WHERE THE ADDITIONAL INVESTMENT MADE "
     "SHOULD BE RECOVERED IN LESS THAN 9 MONTHS."
@@ -118,13 +117,13 @@ def build_diagram_figure():
 if st.button("Run Simulation"):
     with st.spinner("Running cross-EM simulation and building diagram..."):
         try:
-            # run simulation (decision_engine will parse query constraints)
+            # run simulation (decision_engine will parse query constraints and use the mock dataset)
             result = run_simulation(query)
 
             # Recommendation card (concise)
             st.subheader("Group Manager Recommendation")
-            st.markdown(f"**Plant:** {result.get('recommended_plant', 'N/A')}")
-            st.markdown(f"**Expected Increase:** {result.get('expected_increase_tpa', result.get('expected_increase_tpa', 'N/A'))} tpa")
+            st.markdown(f"**Plant(s):** {result.get('recommended_plant', 'N/A')}")
+            st.markdown(f"**Expected Increase:** {result.get('expected_increase_tpa', 'N/A')} tpa")
             inv = result.get('investment_usd')
             st.markdown(f"**Investment (USD):** ${inv:,}" if isinstance(inv, (int, float)) else f"**Investment (USD):** {inv}")
             st.markdown(f"**ROI:** {result.get('roi_months', 'N/A')} months")
@@ -155,26 +154,26 @@ if st.button("Run Simulation"):
             with cols[1]:
                 st.markdown("**Ports EM — Aggregate**")
                 p = result["em_summaries"].get("ports_info", {})
-                st.write(
-                    f"Aggregate port headroom: {p.get('port_headroom_units','N/A')} units "
-                    f"(avg util {p.get('current_utilization','N/A')})"
-                )
+                # ports_info headroom is provided in tonnes (tpa)
+                port_headroom_tpa = p.get('port_headroom_tpa')
+                if port_headroom_tpa is not None:
+                    st.write(f"Aggregate port headroom: {port_headroom_tpa:,} tpa ({port_headroom_tpa/1_000_000:.2f} Mtpa)")
+                else:
+                    st.write("Aggregate port headroom: N/A")
                 st.markdown("**All Port Units (Company A):**")
-                for port in result["em_summaries"].get("port_unit_details", []) if result["em_summaries"].get("port_unit_details") else result["em_summaries"].get("port_units_details", []):
-                    st.write(f"- {port.get('port_id','N/A')}: capacity {port.get('capacity','N/A')}, utilization {port.get('utilization','N/A')}")
+                for port in result["em_summaries"].get("port_units_details", []):
+                    st.write(f"- {port.get('port_id','N/A')}: annual capacity {port.get('annual_capacity_mt','N/A')} Mtpa, throughput {port.get('current_throughput_mt','N/A')} Mtpa")
 
             with cols[2]:
                 st.markdown("**Energy EM — Aggregate**")
                 e = result["em_summaries"].get("energy_info", {})
                 st.write(
-                    f"Aggregate headroom: {e.get('energy_headroom_mw','N/A')} MW "
-                    f"(avail {e.get('energy_available_mw','N/A')} MW)"
+                    f"Aggregate headroom: {e.get('energy_headroom_mw','N/A')} MW (available {e.get('energy_available_mw','N/A')} MW)"
                 )
                 st.markdown("**All Power Plant Units (Company C):**")
                 for plant in result["em_summaries"].get("energy_units_details", []):
                     st.write(
-                        f"- {plant.get('plant_id','N/A')}: capacity {plant.get('capacity_mw','N/A')} MW, "
-                        f"utilization {plant.get('utilization','N/A')}, avail {plant.get('available_mw','N/A')} MW"
+                        f"- {plant.get('plant_id','N/A')}: capacity {plant.get('capacity_mw','N/A')} MW, available {plant.get('available_mw','N/A')} MW"
                     )
 
             # Render the simplified diagram
@@ -203,16 +202,10 @@ if st.button("Run Simulation"):
                 ctx_lines = []
                 if "energy_headroom_mw" in justification:
                     ctx_lines.append(f"- Energy headroom: {justification.get('energy_headroom_mw')} MW")
-                if "port_headroom_units" in justification:
-                    ctx_lines.append(f"- Port headroom: {justification.get('port_headroom_units')} shipment units")
-                # sometimes group_manager returns numeric justification in nested 'justification' or top-level 'justification' may be limited
-                # also check result.top-level values
-                if not ctx_lines:
-                    # try some top-level fields as fallback
-                    if "energy_required_mw" in result:
-                        ctx_lines.append(f"- Energy required by recommendation: {result.get('energy_required_mw')} MW")
-                    if "expected_increase_tpa" in result:
-                        ctx_lines.append(f"- Expected increase (tpa): {result.get('expected_increase_tpa')}")
+                if "port_headroom_tpa" in justification:
+                    ctx_lines.append(f"- Port headroom: {justification.get('port_headroom_tpa'):,} tpa ({justification.get('port_headroom_tpa')/1_000_000:.2f} Mtpa)")
+                if "expected_increase_tpa" in result:
+                    ctx_lines.append(f"- Expected increase (tpa): {result.get('expected_increase_tpa')} tpa")
 
                 if ctx_lines:
                     st.markdown("**Context:**")
@@ -230,7 +223,6 @@ if st.button("Run Simulation"):
                     for m in mitigations:
                         st.markdown(f"- {m}")
 
-            # budget/flag note if applicable
             if result.get("budget_flag", False):
                 st.warning("Candidate selection was influenced by budget or ROI constraints. See Rationale for details.")
 
