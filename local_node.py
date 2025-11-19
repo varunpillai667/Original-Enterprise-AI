@@ -10,7 +10,7 @@ import json
 from datetime import datetime
 from typing import Dict, Any
 
-# FIXED — use project-relative path
+# Use project-relative path so app works on any host/environment
 DATA_PATH = "mock_data.json"
 
 def ingest_data(path: str = DATA_PATH) -> Dict[str, Any]:
