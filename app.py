@@ -78,13 +78,5 @@ if st.button("Run Simulation"):
 
             st.plotly_chart(fig, use_container_width=True)
 
-            # --- Raw data snapshot for transparency / governance ---
-            st.subheader("🔍 Data Snapshot (from LOCAL Node)")
-            st.json(result['data_snapshot'])
-
-            # --- Budget flag UI hint ---
-            if result.get("budget_flag", False):
-                st.warning("The CapEx limit you provided filtered out all candidates. The recommendation shows the top candidate but flagged the budget constraint. Consider increasing the CapEx limit or reviewing alternatives.")
-
         except Exception as e:
             st.error(f"Simulation Error: {e}")
