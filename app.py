@@ -1,7 +1,10 @@
 # app.py
 import streamlit as st
-import plotly.graph_objects as go
 from decision_engine import run_simulation, rationale_for_action_plan
+import plotly.graph_objects as go
+
+# INTERNAL (not shown in UI): path to uploaded operational flow doc (for tooling only)
+DOC_PATH = "/mnt/data/Operational Flow.docx"
 
 st.set_page_config(page_title="Original Enterprise AI – Group Manager Cross-EM Demo", layout="wide")
 st.title("🧠 Group Manager Cross-EM Demo — Concept Prototype")
@@ -15,7 +18,7 @@ st.markdown(
 """
 )
 
-# Default strategic query requested by you
+# Default strategic query
 query = st.text_input("Strategic Query:", "How can we increase the steel production 2 MTPA.")
 capex_limit = st.number_input(
     "Optional CapEx limit (USD):",
@@ -40,11 +43,11 @@ if st.button("Run Simulation"):
             st.markdown(f"**ROI:** {result.get('roi_period_months', 'N/A')} months")
             st.markdown(f"**Energy Required:** {result.get('energy_required_mw', 'N/A')} MW")
 
-            # Show action plan (clear instruction) instead of generic summary or CapEx note
+            # Show action plan (clear instruction)
             action = result.get('action_plan', result.get('summary', 'No action plan available.'))
             st.info(action)
 
-            # Enterprise Manager Summaries — Unit Details (no provenance, no document references)
+            # Enterprise Manager Summaries — Unit Details
             st.subheader("Enterprise Manager Summaries — Unit Details")
 
             cols = st.columns(3)
@@ -88,65 +91,31 @@ if st.button("Run Simulation"):
                         f"utilization {plant.get('utilization','N/A')}, avail {plant.get('available_mw','N/A')} MW"
                     )
 
-            # ---------- SIMPLE, MINIMAL, READABLE SANKey ----------
-            st.subheader("System Connectivity & Data Flow (concept)")
-
-            # Clear, short nodes
-            nodes = [
-                "OT Systems",         # 0
-                "Local Node",         # 1
-                "Steel EM",           # 2
-                "Ports EM",           # 3
-                "Energy EM",          # 4
-                "Group Manager",      # 5
-                "Recommendation"      # 6
-            ]
-
-            # We draw only the obvious primary flows: OT->LocalNode, LocalNode->SteelEM, HQ->EMs (collapsed),
-            # EMs -> Group Manager, Group Manager -> Recommendation.
-            # Keep values small and consistent so widths are readable.
-            source = [0, 1, 2, 3, 4, 5]
-            target = [1, 2, 5, 5, 5, 6]
-            value  = [3, 2, 1, 1, 1, 2]  # illustrative weights
-
-            node_colors = ["#E8F3FF", "#D6EBFF", "#F5E6E6", "#E8F7EA", "#FFF3D6", "#DDEBF7", "#D1F0E1"]
-            link_color = "rgba(120,120,120,0.4)"  # neutral gray links
-
-            fig = go.Figure(go.Sankey(
-                arrangement="fixed",
-                node = dict(
-                    pad = 20,
-                    thickness = 18,
-                    line = dict(color = "black", width = 0.5),
-                    label = nodes,
-                    color = node_colors,
-                    x=[0.0, 0.15, 0.45, 0.45, 0.45, 0.75, 0.95],  # horizontal positions to keep layout compact and linear
-                    y=[0.5, 0.5, 0.2, 0.5, 0.8, 0.5, 0.5]          # vertical positions to avoid overlap
-                ),
-                link = dict(
-                    source = source,
-                    target = target,
-                    value = value,
-                    color = [link_color] * len(source)
-                )
-            ))
-
-            # Minimal, readable layout
-            fig.update_layout(
-                margin=dict(l=10, r=10, t=20, b=10),
-                font=dict(size=12),
-                title_text="Simple Data Flow — OT → Local Node → EMs → Group",
-                height=300
-            )
-
-            st.plotly_chart(fig, use_container_width=True)
+            # ---------- MINIMAL, READABLE DATA FLOW (text-based) ----------
+            # The user asked for simple, minimum and readable data flow; no system connectivity diagram.
+            st.subheader("Data Flow (simple)")
+            # Use HTML for crisp, dark, readable typography. This is intentionally minimal and centered.
+            data_flow_html = """
+<div style="font-family:Arial, Helvetica, sans-serif; color:#111111; font-size:16px; line-height:1.4;">
+  <div style="text-align:center; margin-bottom:10px;">
+    <strong>OT Systems</strong> &nbsp;→&nbsp; <strong>Local Node</strong> &nbsp;→&nbsp;
+    <strong>Enterprise Managers</strong> (Steel · Ports · Energy) &nbsp;→&nbsp;
+    <strong>Group Manager</strong> &nbsp;→&nbsp; <strong>Recommendation</strong>
+  </div>
+  <div style="text-align:center; color:#333333; font-size:13px;">
+    Data flows: OT telemetry (SCADA/MES/TOS) → Local Node preprocessing → EM evaluations → Group-level orchestration.
+  </div>
+</div>
+"""
+            st.markdown(data_flow_html, unsafe_allow_html=True)
 
             # Rationale for Action Plan (explains why the plan was given, based on data)
             st.subheader("Rationale for Action Plan")
             rationale_md = rationale_for_action_plan(query, result)
+            # Render rationale as markdown (it is already formatted)
             st.markdown(rationale_md)
 
-            # Budget note: user-visible but neutral (keeps user informed)
+            # Budget note (neutral)
             if result.get("budget_flag", False):
                 st.warning("The CapEx limit filtered out all candidates; the recommendation shows the top candidate and flags the budget constraint.")
 
