@@ -1,10 +1,7 @@
 """
 local_node.py
 
-LOCAL Node responsibilities:
-- Ingest OT system feeds from ports & plants (SCADA, DCS, MES, TOS)
-- Light preprocess (validate, timestamp, normalize)
-- Annotate payload for Enterprise Managers (no analytics here)
+LOCAL Node: ingest mock OT telemetry and forward structured payload to EMs.
 """
 import json
 from datetime import datetime
@@ -12,7 +9,7 @@ from typing import Dict, Any
 
 DATA_PATH = "mock_data.json"
 
-def ingest_local_site(site_id: str = "Site-1", path: str = DATA_PATH) -> Dict[str, Any]:
+def ingest_local_site(site_id: str = "Port+Plant-Site", path: str = DATA_PATH) -> Dict[str, Any]:
     with open(path, "r") as f:
         raw = json.load(f)
 
@@ -22,9 +19,9 @@ def ingest_local_site(site_id: str = "Site-1", path: str = DATA_PATH) -> Dict[st
         "site_id": site_id,
         "timestamp": now,
         "systems": {
-            "SCADA": {"note": "turbine/boiler telemetry (sample)"},
-            "MES": {"note": "production rates & downtime (sample)"},
-            "TOS": {"note": "terminal yard stats (sample)"}
+            "SCADA": {"note": "telemetry sample"},
+            "MES": {"note": "production sample"},
+            "TOS": {"note": "terminal sample"}
         },
         "steel_plants": raw.get("steel_plants", []),
         "energy": raw.get("energy", {}),
