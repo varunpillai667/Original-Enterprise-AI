@@ -4,7 +4,6 @@ import plotly.graph_objects as go
 from decision_engine import run_simulation, rationale_for_action_plan
 
 # INTERNAL (tooling only): local path to uploaded doc (not shown in UI)
-# Use this local path as the file URL in your tooling when needed.
 FILE_URL = "/mnt/data/Operational Flow.docx"
 
 st.set_page_config(page_title="Original Enterprise AI Concept Prototype", layout="wide")
@@ -25,14 +24,13 @@ Only the Group Manager performs cross-enterprise reasoning by combining insights
 """
 )
 
-# Strategic query (updated per user request; no CapEx input)
-query = st.text_input(
-    "Strategic Query:",
-    "HOW CAN WE INCREASE THE STEEL PRODUCTION BY 2 MTPA WHERE THE ADDITIONAL INVESTMENT MADE SHOULD BE RECOVERED IN LESS THAN 9 MONTHS."
-)
+# Exact strategic query requested: (capitalized as requested)
+default_query = ("HOW CAN WE INCREASE THE STEEL PRODUCTION BY 2 MTPA WHERE THE ADDITIONAL "
+                 "INVESTMENT MADE SHOULD BE RECOVERED IN LESS THAN 9 MONTHS.")
+query = st.text_input("Strategic Query:", default_query)
 
 def build_diagram_figure():
-    """Clean data-flow diagram with straight, highly visible arrows."""
+    """Clean data-flow diagram with straight, visible arrows."""
     fig = go.Figure()
     fig.update_layout(
         width=1000,
@@ -68,17 +66,16 @@ def build_diagram_figure():
     draw_box(0.40, 0.50, 0.18, 0.14, "Ports EM", "#EEF9F0")
     draw_box(0.40, 0.72, 0.18, 0.14, "Energy EM", "#FFF7E6")
 
-    # Right: Group Manager and Recommendation
+    # Right: Group Manager & Recommendation
     draw_box(0.72, 0.50, 0.18, 0.20, "Group Manager", "#E9F2FF")
     draw_box(0.92, 0.50, 0.12, 0.16, "Recommendation", "#E8FFF0")
 
-    # Highly visible straight arrows (classic style A)
-    arrow_color = "#111111"  # darker for visibility
+    # Arrow helper (straight, visible)
+    arrow_color = "#111111"
     arrow_width = 3
-    arrow_head = 4  # more prominent arrowhead
+    arrow_head = 4
 
     def straight_arrow(x0, y0, x1, y1, width=arrow_width, color=arrow_color, head=arrow_head):
-        # Using annotation with explicit ax/ay draws a straight arrow
         fig.add_annotation(
             x=x1, y=y1, ax=x0, ay=y0,
             xref="x", yref="y", axref="x", ayref="y",
@@ -89,20 +86,20 @@ def build_diagram_figure():
             arrowcolor=color
         )
 
-    # Local Nodes -> EMs (horizontal arrows)
+    # Local Nodes -> EMs
     straight_arrow(0.22, 0.28, 0.31, 0.28)
     straight_arrow(0.22, 0.50, 0.31, 0.50)
     straight_arrow(0.22, 0.72, 0.31, 0.72)
 
-    # EMs -> Group Manager (straight arrows aligned to group center)
+    # EMs -> Group Manager
     straight_arrow(0.49, 0.28, 0.63, 0.50)
     straight_arrow(0.49, 0.50, 0.63, 0.50)
     straight_arrow(0.49, 0.72, 0.63, 0.50)
 
-    # Group Manager -> Recommendation (horizontal)
+    # Group Manager -> Recommendation
     straight_arrow(0.81, 0.50, 0.86, 0.50, width=4, head=5)
 
-    # Caption under diagram
+    # Caption
     fig.add_annotation(
         x=0.5, y=0.03,
         text="Data flow: Local Nodes (per unit) → EMs → Group Manager → Recommendation",
@@ -114,40 +111,39 @@ def build_diagram_figure():
     fig.update_yaxes(visible=False, range=[0,1])
     return fig
 
-# Run Simulation (single action: run + diagram)
+# Single action: run simulation and render diagram/results
 if st.button("Run Simulation"):
     with st.spinner("Running cross-EM simulation and building diagram..."):
         try:
-            # no capex input used in this flow (user asked to remove)
-            result = run_simulation(query, capex_limit_usd=None)
+            result = run_simulation(query)  # decision_engine will parse query constraints
 
-            # Recommendation card (concise)
+            # Recommendation card
             st.subheader("Group Manager Recommendation")
             st.markdown(f"**Plant:** {result.get('recommended_plant', 'N/A')}")
-            st.markdown(f"**Expected Increase:** {result.get('expected_increase_pct', 'N/A')}")
+            st.markdown(f"**Expected Increase:** {result.get('expected_increase_tpa', 'N/A')} tpa")
             inv = result.get('investment_usd')
             st.markdown(f"**Investment (USD):** ${inv:,}" if isinstance(inv, (int, float)) else f"**Investment (USD):** {inv}")
-            st.markdown(f"**ROI:** {result.get('roi_period_months', 'N/A')} months")
+            st.markdown(f"**ROI:** {result.get('roi_months', 'N/A')} months")
             st.markdown(f"**Energy Required:** {result.get('energy_required_mw', 'N/A')} MW")
 
             # Action plan (clear instruction)
             action = result.get('action_plan', result.get('summary', 'No action plan available.'))
             st.info(action)
 
-            # Unit summaries (compact)
+            # EM summaries
             st.subheader("Enterprise Manager Summaries — Unit Details")
             cols = st.columns(3)
             with cols[0]:
                 st.markdown("**Steel EM — Top Candidates**")
                 for c in result["em_summaries"].get("steel_top_candidates", []):
                     st.write(
-                        f"{c.get('plant_id','N/A')}: +{c.get('feasible_increase_pct','N/A')}% — "
-                        f"CapEx ${c.get('capex_estimate_usd','N/A'):,} — Energy {c.get('energy_required_mw','N/A')} MW"
+                        f"{c.get('plant_id','N/A')}: +{c.get('feasible_increase_tpa','N/A')} tpa — "
+                        f"CapEx ${c.get('capex_estimate_usd','N/A'):,} — Energy {c.get('energy_required_mw','N/A')} MW — ROI {c.get('roi_months','N/A')}m"
                     )
                 st.markdown("**All Steel Units (Company B):**")
                 for su in result["em_summaries"].get("steel_units_details", []):
                     st.write(
-                        f"- {su.get('plant_id','N/A')}: capacity {su.get('capacity','N/A')} units, "
+                        f"- {su.get('plant_id','N/A')}: capacity {su.get('capacity_tpa','N/A')} tpa, "
                         f"utilization {su.get('utilization','N/A')}, capex est ${su.get('capex_estimate_usd','N/A'):,}, "
                         f"ROI {su.get('roi_months','N/A')} months"
                     )
@@ -175,22 +171,18 @@ if st.button("Run Simulation"):
                         f"utilization {plant.get('utilization','N/A')}, avail {plant.get('available_mw','N/A')} MW"
                     )
 
-            # Render the simplified diagram
+            # Diagram
             st.subheader("Data Flow Diagram")
             st.plotly_chart(build_diagram_figure(), use_container_width=True)
 
-            # Rationale for action plan (single header)
+            # Rationale (single header)
             st.subheader("Rationale for Action Plan")
             rationale_md = rationale_for_action_plan(query, result)
             rationale_md = rationale_md.replace("Rationale for Action Plan", "").strip()
             st.markdown(rationale_md)
 
-            # Budget notice if applicable
             if result.get("budget_flag", False):
-                st.warning(
-                    "The CapEx limit filtered out all candidates; "
-                    "the recommendation shows the top candidate and flags the budget constraint."
-                )
+                st.warning("Candidate selection was influenced by budget or ROI constraints. See Rationale for details.")
 
         except Exception as exc:
             st.error(f"Simulation Error: {exc}")
