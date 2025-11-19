@@ -4,18 +4,17 @@ import plotly.graph_objects as go
 from decision_engine import run_simulation, rationale_for_action_plan
 
 # INTERNAL (tooling only): local path to uploaded doc (not shown in UI)
+# Use this local path as the file URL in your tooling when needed.
 FILE_URL = "/mnt/data/Operational Flow.docx"
 
 st.set_page_config(page_title="Original Enterprise AI Concept Prototype", layout="wide")
-st.title("original enterprise AI concept prototype")
+st.title("Original Enterprise AI Concept Prototype")
 
-# REPLACED INTRO TEXT (includes enterprise-manager behaviour note)
+# Intro / Context (cleaned per request; removed assumed-systems section)
 st.markdown(
     """
 **This is a mock prototype created to demonstrate and clarify the Original Enterprise AI concept.**  
-A strategic query has been pre-filled as an example. The results shown after running the simulation are produced from assumed sample data for demonstration purposes only.  
-
-In a real deployment, the platform will pull live telemetry and enterprise information from connected systems across the organisation via Local Nodes and Enterprise Managers.
+A strategic query has been pre-filled as an example. The results shown after running the simulation are produced from assumed sample data for demonstration purposes only.
 
 Each Enterprise Manager can independently produce operational recommendations for the units and systems connected to it at the company level.  
 However, Enterprise Managers cannot access the Group Manager or any cross-enterprise data.  
@@ -37,10 +36,13 @@ def build_diagram_figure():
     """
     Clean diagram (no OT block):
     Local Nodes (multiple units for each EM) → Steel EM / Ports EM / Energy EM → Group Manager → Recommendation
+
+    Arrows are straight, uniform, and visually aligned (style A chosen).
     """
     fig = go.Figure()
     fig.update_layout(
-        width=1000, height=320,
+        width=1000,
+        height=320,
         plot_bgcolor="white",
         margin=dict(l=10, r=10, t=10, b=10),
         font=dict(color="#111111")
@@ -61,43 +63,45 @@ def build_diagram_figure():
         )
 
     # Main boxes (positions chosen for clarity)
-    # Leftmost are local nodes clusters (one per EM, abstracted)
     draw_box(0.12, 0.28, 0.20, 0.16, "Local Nodes\n(multiple units\nfor Steel EM)", "#EAF4FF")
     draw_box(0.12, 0.50, 0.20, 0.16, "Local Nodes\n(multiple units\nfor Ports EM)", "#EAF4FF")
     draw_box(0.12, 0.72, 0.20, 0.16, "Local Nodes\n(multiple units\nfor Energy EM)", "#EAF4FF")
 
-    # EM boxes in the middle
     draw_box(0.40, 0.28, 0.18, 0.14, "Steel EM", "#FDEEEE")
     draw_box(0.40, 0.50, 0.18, 0.14, "Ports EM", "#EEF9F0")
     draw_box(0.40, 0.72, 0.18, 0.14, "Energy EM", "#FFF7E6")
 
-    # Group Manager and Recommendation to the right
     draw_box(0.72, 0.50, 0.18, 0.20, "Group Manager", "#E9F2FF")
     draw_box(0.92, 0.50, 0.12, 0.16, "Recommendation", "#E8FFF0")
 
-    # Helper for arrows
-    def arrow(from_x, from_y, to_x, to_y, w=2):
+    # Straight, uniform arrows (style A: classic straight arrows)
+    arrow_color = "#333333"
+    arrow_width = 2
+
+    def straight_arrow(x0, y0, x1, y1, width=arrow_width, color=arrow_color):
+        """
+        Draw a straight arrow from (x0, y0) -> (x1, y1) using an annotation directed correctly.
+        Using ax/ay to place the tail ensures a straight line.
+        """
         fig.add_annotation(
-            x=to_x, y=to_y,
-            ax=from_x, ay=from_y,
-            xref="x", yref="y",
-            showarrow=True,
-            arrowhead=3, arrowsize=1.1,
-            arrowwidth=w, arrowcolor="#555555"
+            x=x1, y=y1, ax=x0, ay=y0,
+            xref="x", yref="y", axref="x", ayref="y",
+            showarrow=True, arrowhead=3, arrowsize=1.0,
+            arrowwidth=width, arrowcolor=color
         )
 
-    # Local Nodes -> each EM
-    arrow(0.22, 0.28, 0.31, 0.28)
-    arrow(0.22, 0.50, 0.31, 0.50)
-    arrow(0.22, 0.72, 0.31, 0.72)
+    # Local Nodes -> each EM (horizontal arrows)
+    straight_arrow(0.22, 0.28, 0.31, 0.28)
+    straight_arrow(0.22, 0.50, 0.31, 0.50)
+    straight_arrow(0.22, 0.72, 0.31, 0.72)
 
-    # EMs -> Group Manager
-    arrow(0.49, 0.28, 0.63, 0.50)
-    arrow(0.49, 0.50, 0.63, 0.50)
-    arrow(0.49, 0.72, 0.63, 0.50)
+    # EMs -> Group Manager (straight, slightly diagonal but aligned to group center)
+    straight_arrow(0.49, 0.28, 0.63, 0.50)
+    straight_arrow(0.49, 0.50, 0.63, 0.50)
+    straight_arrow(0.49, 0.72, 0.63, 0.50)
 
-    # Group Manager -> Recommendation
-    arrow(0.81, 0.50, 0.86, 0.50, w=2.5)
+    # Group Manager -> Recommendation (horizontal)
+    straight_arrow(0.81, 0.50, 0.86, 0.50, width=2.5)
 
     # Caption under diagram
     fig.add_annotation(
@@ -107,6 +111,7 @@ def build_diagram_figure():
         font=dict(size=11, color="#222222")
     )
 
+    # Hide axes and set ranges
     fig.update_xaxes(visible=False, range=[0,1])
     fig.update_yaxes(visible=False, range=[0,1])
     return fig
