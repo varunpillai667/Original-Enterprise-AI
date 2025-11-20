@@ -1,10 +1,138 @@
 {
   "steel_plants": [
-    {"plant_id": "SP1", "capacity": 1000, "utilization": 0.82, "capex_estimate_usd": 750000, "roi_months": 8},
-    {"plant_id": "SP2", "capacity": 1200, "utilization": 0.68, "capex_estimate_usd": 950000, "roi_months": 10},
-    {"plant_id": "SP3", "capacity": 900, "utilization": 0.91, "capex_estimate_usd": 600000, "roi_months": 7},
-    {"plant_id": "SP4", "capacity": 1100, "utilization": 0.74, "capex_estimate_usd": 820000, "roi_months": 9}
+    {
+      "plant_id": "SP1",
+      "capacity_tpa": 1500000,
+      "utilization": 0.75,
+      "capex_estimate_usd": 800000,
+      "energy_required_mw": 1.2,
+      "location": "Plant Complex A",
+      "product_mix": "Structural Steel",
+      "maintenance_schedule": "Q2 2024"
+    },
+    {
+      "plant_id": "SP2", 
+      "capacity_tpa": 1200000,
+      "utilization": 0.72,
+      "capex_estimate_usd": 750000,
+      "energy_required_mw": 1.0,
+      "location": "Plant Complex B",
+      "product_mix": "Automotive Steel",
+      "maintenance_schedule": "Q3 2024"
+    },
+    {
+      "plant_id": "SP3",
+      "capacity_tpa": 1800000,
+      "utilization": 0.68,
+      "capex_estimate_usd": 950000,
+      "energy_required_mw": 1.5,
+      "location": "Plant Complex C", 
+      "product_mix": "Specialty Alloys",
+      "maintenance_schedule": "Q1 2024"
+    },
+    {
+      "plant_id": "SP4",
+      "capacity_tpa": 1400000,
+      "utilization": 0.70,
+      "capex_estimate_usd": 820000,
+      "energy_required_mw": 1.1,
+      "location": "Plant Complex D",
+      "product_mix": "Construction Steel",
+      "maintenance_schedule": "Q4 2024"
+    }
   ],
-  "energy": {"available_mw": 20, "cost_per_mw_usd": 1100},
-  "ports": {"port2_capacity": 15000, "current_utilization": 0.84}
+  "ports": {
+    "ports_list": [
+      {
+        "port_id": "PortA1",
+        "annual_capacity_mt": 3.0,
+        "current_throughput_mt": 2.0,
+        "berths_available": 4,
+        "crane_capacity": 45,
+        "specialized_handling": "Bulk_Carriers"
+      },
+      {
+        "port_id": "PortA2", 
+        "annual_capacity_mt": 2.5,
+        "current_throughput_mt": 1.5,
+        "berths_available": 3,
+        "crane_capacity": 32,
+        "specialized_handling": "Container_Ships"
+      },
+      {
+        "port_id": "PortA3",
+        "annual_capacity_mt": 2.8,
+        "current_throughput_mt": 1.8,
+        "berths_available": 5,
+        "crane_capacity": 38,
+        "specialized_handling": "RoRo_Vessels"
+      },
+      {
+        "port_id": "PortA4",
+        "annual_capacity_mt": 1.7,
+        "current_throughput_mt": 1.2,
+        "berths_available": 2,
+        "crane_capacity": 25,
+        "specialized_handling": "General_Cargo"
+      }
+    ],
+    "total_capacity_mt": 10.0,
+    "commercial_operations_note": "70% of throughput is commercial cargo - MUST BE PROTECTED"
+  },
+  "energy": {
+    "energy_units_list": [
+      {
+        "plant_id": "PP1",
+        "capacity_mw": 800,
+        "available_mw": 320,
+        "plant_type": "Thermal",
+        "fuel_type": "Coal",
+        "efficiency": 0.42,
+        "grid_connection": "National_Grid_North"
+      },
+      {
+        "plant_id": "PP2",
+        "capacity_mw": 700,
+        "available_mw": 280,
+        "plant_type": "Thermal", 
+        "fuel_type": "Natural_Gas",
+        "efficiency": 0.48,
+        "grid_connection": "National_Grid_South"
+      },
+      {
+        "plant_id": "PP3",
+        "capacity_mw": 500,
+        "available_mw": 200,
+        "plant_type": "Thermal",
+        "fuel_type": "Diesel",
+        "efficiency": 0.38,
+        "grid_connection": "National_Grid_East"
+      }
+    ],
+    "total_capacity_mw": 2000,
+    "grid_sales_note": "60% of generation sold to national grid - MUST BE PROTECTED"
+  },
+  "group_systems": {
+    "treasury_system": {
+      "name": "Group_Treasury_X",
+      "cash_flow_visibility": "real_time",
+      "investment_tracking": "active"
+    },
+    "esg_system": {
+      "name": "ESG_Compliance_Suite",
+      "emissions_tracking": "automated", 
+      "sustainability_reporting": "integrated"
+    },
+    "m_a_system": {
+      "name": "M_A_Strategy_Platform",
+      "opportunity_assessment": "ai_enhanced",
+      "integration_planning": "supported"
+    }
+  },
+  "metadata": {
+    "last_updated": "2024-01-15T08:00:00Z",
+    "data_source": "LOCAL_Nodes_Consolidated",
+    "version": "2.1",
+    "note": "This data represents processed information from LOCAL Nodes to Enterprise Managers"
+  }
 }
