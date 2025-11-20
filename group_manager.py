@@ -1,11 +1,23 @@
 # group_manager.py
 """
 Group-level orchestrator: finds a combination of steel plants (and checks energy & port capacity)
-that meets the required increase in tpa while respecting ROI limit. Returns actionable plan.
+that meets the required increase in tpa while ensuring the combined ROI meets the constraint.
 """
 
 from typing import Dict, Any, List
 import itertools
+
+def _combined_roi_months(combo: List[Dict[str, Any]]) -> float:
+    """
+    Compute combined ROI in months for the provided combo.
+    combined_roi_months = total_capex / total_incremental_monthly_income
+    If incremental monthly income is zero, return a very large number.
+    """
+    total_capex = sum(c.get("capex_estimate_usd", 0) for c in combo)
+    total_monthly_income = sum(c.get("incr_monthly_income", 0) for c in combo)
+    if total_monthly_income <= 0:
+        return float("inf")
+    return round(total_capex / total_monthly_income, 2)
 
 def orchestrate_across_ems(steel_candidates: List[Dict[str, Any]],
                            ports_info: Dict[str, Any],
@@ -13,32 +25,24 @@ def orchestrate_across_ems(steel_candidates: List[Dict[str, Any]],
                            group_systems: Dict[str, Any],
                            required_increase_tpa: int = 2_000_000,
                            max_roi_months: int = 9) -> Dict[str, Any]:
-    # sanity
     if not steel_candidates:
         raise RuntimeError("No steel candidates provided to Group Manager.")
 
     port_headroom_tpa = ports_info.get("port_headroom_tpa", 0)
     energy_headroom_mw = energy_info.get("energy_headroom_mw", 0)
 
-    # Try to find any combination (1..N) of steel candidates that together meet required_increase_tpa
-    # and whose per-plant ROI <= max_roi_months, and whose total energy & port usage <= headroom.
     n = len(steel_candidates)
-    # limit combination size to avoid combinatorial explosion in prototype; allow up to all plants
-    best_solution = None
 
-    # Try combinations by increasing size (prefer small sets)
+    # Try combinations of plants (1..N). Prefer smaller combos first.
     for r in range(1, n + 1):
-        # iterate combinations of r plants
         for combo in itertools.combinations(steel_candidates, r):
             total_increase = sum(c["feasible_increase_tpa"] for c in combo)
-            # require per-plant ROI <= max_roi_months (user specified that investment must be recovered <9 months)
-            if any(c["roi_months"] > max_roi_months for c in combo):
-                continue
             total_energy_req = sum(c["energy_required_mw"] for c in combo)
-            total_shipment_units = sum(c["feasible_increase_tpa"] for c in combo)  # shipments proportional to tonnes
-            # check resource constraints
-            if total_increase >= required_increase_tpa and total_energy_req <= energy_headroom_mw and total_shipment_units <= port_headroom_tpa:
-                # Found a valid solution
+            total_shipment_units = sum(c["feasible_increase_tpa"] for c in combo)
+            combined_roi = _combined_roi_months(combo)
+
+            # check resource constraints and combined ROI
+            if total_increase >= required_increase_tpa and total_energy_req <= energy_headroom_mw and total_shipment_units <= port_headroom_tpa and combined_roi <= max_roi_months:
                 names = ", ".join([c["plant_id"] for c in combo])
                 action_plan = (
                     f"Combined Action Plan across {names} to achieve +{total_increase} tpa:\n"
@@ -51,13 +55,14 @@ def orchestrate_across_ems(steel_candidates: List[Dict[str, Any]],
                     "recommended_plant": names,
                     "expected_increase_tpa": total_increase,
                     "investment_usd": sum(c.get("capex_estimate_usd", 0) for c in combo),
-                    "roi_months": min(c.get("roi_months") for c in combo),
+                    "roi_months": combined_roi,
                     "energy_required_mw": total_energy_req,
-                    "summary": "Combined candidate set meets target under ROI and resource constraints.",
+                    "summary": "Combined candidate set meets target under combined ROI and resource constraints.",
                     "action_plan": action_plan,
                     "justification": {
                         "energy_headroom_mw": energy_headroom_mw,
                         "port_headroom_tpa": port_headroom_tpa,
+                        "expected_increase_tpa": total_increase,
                         "breaches": [],
                         "mitigations": []
                     },
@@ -68,50 +73,49 @@ def orchestrate_across_ems(steel_candidates: List[Dict[str, Any]],
                     }
                 }
 
-    # If no valid combination found that meets all constraints, attempt best-effort solution:
-    # Greedy select plants by feasible increase (desc) but only include those with ROI <= max_roi_months
-    remaining_energy = energy_headroom_mw
-    remaining_port = port_headroom_tpa
+    # No perfect combination found: attempt greedy combination allowing combos where combined ROI <= max even if some individuals exceed max
+    # Greedy by feasible_increase desc but evaluate combined ROI at each addition
+    sorted_candidates = sorted(steel_candidates, key=lambda x: -x["feasible_increase_tpa"])
     selected = []
-    total = 0
-    for c in steel_candidates:
-        if c["roi_months"] > max_roi_months:
-            continue
-        if c["energy_required_mw"] <= remaining_energy and c["feasible_increase_tpa"] <= remaining_port:
-            selected.append(c)
-            total += c["feasible_increase_tpa"]
-            remaining_energy -= c["energy_required_mw"]
-            remaining_port -= c["feasible_increase_tpa"]
-        if total >= required_increase_tpa:
-            break
-
-    if total >= required_increase_tpa:
-        names = ", ".join([s["plant_id"] for s in selected])
-        action_plan = (
-            f"Combined (greedy) plan across {names} to achieve +{total} tpa. Energy allocation and port reservation assigned accordingly."
-        )
-        return {
-            "recommended_plant": names,
-            "expected_increase_tpa": total,
-            "investment_usd": sum(s.get("capex_estimate_usd", 0) for s in selected),
-            "roi_months": min(s.get("roi_months") for s in selected),
-            "energy_required_mw": sum(s.get("energy_required_mw", 0) for s in selected),
-            "summary": "Greedy combined candidate meets target under ROI & resource checks.",
-            "action_plan": action_plan,
-            "justification": {
-                "energy_headroom_mw": energy_headroom_mw,
-                "port_headroom_tpa": port_headroom_tpa,
-                "breaches": [],
-                "mitigations": []
-            },
-            "explainability": {
-                "steel_em": [s.get("explainability", {}) for s in selected],
-                "ports_em": ports_info.get("explainability", {}),
-                "energy_em": energy_info.get("explainability", {})
+    total_inc = 0
+    total_energy = 0
+    total_shipments = 0
+    for c in sorted_candidates:
+        selected.append(c)
+        total_inc += c["feasible_increase_tpa"]
+        total_energy += c["energy_required_mw"]
+        total_shipments += c["feasible_increase_tpa"]
+        combined_roi = _combined_roi_months(selected)
+        if total_inc >= required_increase_tpa and total_energy <= energy_headroom_mw and total_shipments <= port_headroom_tpa and combined_roi <= max_roi_months:
+            names = ", ".join([s["plant_id"] for s in selected])
+            action_plan = (
+                f"Greedy combined Action Plan across {names} to achieve +{total_inc} tpa:\n"
+                f"Combined ROI estimated: {combined_roi} months.\n"
+                "Coordinate energy and port reservations accordingly and run pilots."
+            )
+            return {
+                "recommended_plant": names,
+                "expected_increase_tpa": total_inc,
+                "investment_usd": sum(s.get("capex_estimate_usd", 0) for s in selected),
+                "roi_months": combined_roi,
+                "energy_required_mw": total_energy,
+                "summary": "Greedy combined candidate meets target and combined ROI constraint.",
+                "action_plan": action_plan,
+                "justification": {
+                    "energy_headroom_mw": energy_headroom_mw,
+                    "port_headroom_tpa": port_headroom_tpa,
+                    "expected_increase_tpa": total_inc,
+                    "breaches": [],
+                    "mitigations": []
+                },
+                "explainability": {
+                    "steel_em": [s.get("explainability", {}) for s in selected],
+                    "ports_em": ports_info.get("explainability", {}),
+                    "energy_em": energy_info.get("explainability", {})
+                }
             }
-        }
 
-    # Final fallback: return best single candidate with clear mitigations and explicit breaches
+    # Final fallback: best single candidate with clear mitigation recommendations
     top = steel_candidates[0]
     breaches = []
     if top["feasible_increase_tpa"] < required_increase_tpa:
