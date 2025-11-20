@@ -46,15 +46,9 @@ def _load_mock_data():
     }
 
 def _parse_query(query: str) -> Dict[str, Any]:
-    """
-    Very small parser to extract:
-     - target_increase_tpa (e.g., '2 MTPA' -> 2_000_000)
-     - max_roi_months (e.g., '9 months' or '<9 months')
-    """
     q = query.lower()
     parsed = {"target_increase_tpa": None, "max_roi_months": None}
 
-    # find patterns like '2 mtpa' or '2 mtpa' or '2 mtpa.'
     m = re.search(r"(\d+(?:\.\d+)?)\s*(mtpa|mta|m tpa|tpa|tpa\.)", q)
     if m:
         num = float(m.group(1))
@@ -64,7 +58,6 @@ def _parse_query(query: str) -> Dict[str, Any]:
         else:
             parsed["target_increase_tpa"] = int(num)
 
-    # months constraint
     m2 = re.search(r"less than\s*(\d+)\s*months|<\s*(\d+)\s*months|within\s*(\d+)\s*months", q)
     if m2:
         for g in m2.groups():
@@ -76,7 +69,6 @@ def _parse_query(query: str) -> Dict[str, Any]:
         if m3:
             parsed["max_roi_months"] = int(m3.group(1))
 
-    # fallback defaults
     if parsed["target_increase_tpa"] is None:
         parsed["target_increase_tpa"] = 2_000_000
     if parsed["max_roi_months"] is None:
@@ -85,27 +77,20 @@ def _parse_query(query: str) -> Dict[str, Any]:
     return parsed
 
 def run_simulation(query: str) -> Dict[str, Any]:
-    """
-    Full simulation: get data (mock/fallback), call EM evaluators and group manager,
-    and assemble results for the UI.
-    """
     mock = _load_mock_data()
     steel_plants = mock.get("steel_plants", [])
     ports = mock.get("ports", {})
     energy = mock.get("energy", {})
     group_systems = mock.get("group_systems", {})
 
-    # parse query constraints
     constraints = _parse_query(query)
     target_tpa = constraints["target_increase_tpa"]
     max_roi = constraints["max_roi_months"]
 
-    # run EM evaluations (these return candidate lists and aggregate info)
     steel_candidates = evaluate_steel(steel_plants, target_tpa)
     ports_info = evaluate_ports(ports)
     energy_info = evaluate_energy(energy)
 
-    # orchestrate and pick recommendation
     result = orchestrate_across_ems(
         steel_candidates=steel_candidates,
         ports_info=ports_info,
@@ -115,7 +100,6 @@ def run_simulation(query: str) -> Dict[str, Any]:
         max_roi_months=max_roi
     )
 
-    # Build EM summaries for UI
     result["em_summaries"] = {
         "steel_top_candidates": steel_candidates[:10],
         "steel_units_details": steel_plants,
@@ -131,7 +115,6 @@ def run_simulation(query: str) -> Dict[str, Any]:
         "energy_units_details": energy_info.get("energy_units_list", [])
     }
 
-    # include parsed constraints for rationale
     result["query_constraints"] = constraints
     result["query"] = query
     return result
