@@ -21,10 +21,10 @@ Local Nodes push per-site telemetry to Enterprise Managers (EMs). EMs evaluate o
 """
 )
 
-# Default strategic query (updated to 3 years recovery)
+# Updated strategic query for across all plants distribution
 default_query = (
-    "HOW CAN WE INCREASE THE STEEL PRODUCTION BY 2 MTPA WHERE THE ADDITIONAL INVESTMENT MADE "
-    "SHOULD BE RECOVERED WITHIN 3 YEARS."
+    "HOW CAN THE STEEL PRODUCTION BE INCREASED BY 2 MTPA ACROSS ALL THE STEEL PLANTS "
+    "AND THE INVESTMENT SHOULD BE RECOVERED IN THREE YEARS."
 )
 query = st.text_input("Strategic Query:", default_query)
 
@@ -92,6 +92,10 @@ if st.button("Run Simulation"):
             st.markdown(f"**Investment (USD):** ${inv:,.0f}" if isinstance(inv, (int, float)) else f"**Investment (USD):** {inv}")
             st.markdown(f"**Combined ROI:** {result.get('roi_months', 'N/A')} months")
             st.markdown(f"**Energy Required:** {result.get('energy_required_mw', 'N/A')} MW")
+            
+            # Show distribution strategy
+            if "distribution_strategy" in result.get("justification", {}):
+                st.markdown(f"**Distribution Strategy:** {result['justification']['distribution_strategy'].replace('_', ' ').title()}")
 
             # Action plan as clear instruction
             st.success(result.get('action_plan', result.get('summary', 'No action plan available.')))
@@ -105,8 +109,27 @@ if st.button("Run Simulation"):
                     alloc = a.get("allocated_tpa", 0)
                     feasible = a.get("feasible_tpa", 0)
                     cap_alloc = a.get("capex_allocated_usd")
+                    energy_alloc = a.get("energy_required_mw", 0)
                     cap_str = f"${cap_alloc:,.0f}" if isinstance(cap_alloc, (int, float)) else cap_alloc
-                    st.write(f"- {plant}: Allocate {alloc:,} tpa (feasible up to {feasible:,} tpa) | Estimated CapEx contribution: {cap_str}")
+                    st.write(f"- {plant}: Allocate {alloc:,} tpa (feasible up to {feasible:,} tpa) | CapEx: {cap_str} | Energy: {energy_alloc:.1f} MW")
+
+            # Show infrastructure requirements if available
+            if "infrastructure_requirements" in result:
+                st.subheader("Infrastructure Impact Analysis")
+                infra = result["infrastructure_requirements"]
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("**Ports Capacity Analysis:**")
+                    st.write(f"- Utilization: {infra.get('ports_capacity_utilization', 'N/A')}")
+                    st.markdown("**Recommended Port Upgrades:**")
+                    for upgrade in infra.get("recommended_port_upgrades", []):
+                        st.write(f"- {upgrade}")
+                with col2:
+                    st.markdown("**Energy Capacity Analysis:**")
+                    st.write(f"- Utilization: {infra.get('energy_capacity_utilization', 'N/A')}")
+                    st.markdown("**Recommended Energy Upgrades:**")
+                    for upgrade in infra.get("recommended_energy_upgrades", []):
+                        st.write(f"- {upgrade}")
 
             # Short EM summaries (concise)
             st.subheader("Enterprise Manager Summaries — Unit Details")
