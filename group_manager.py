@@ -59,15 +59,172 @@ def _allocate_required(combo: List[Dict[str, Any]], required: int) -> List[Dict[
         a.pop("capex_estimate_usd", None)
     return allocations
 
+def _calculate_port_upgrades(required_tpa: int, available_tpa: int) -> List[str]:
+    """Calculate what port upgrades are needed."""
+    upgrades = []
+    if required_tpa > available_tpa:
+        deficit = required_tpa - available_tpa
+        upgrades.append(f"Additional port capacity needed: {deficit:,} tpa ({deficit/1_000_000:.2f} MTPA)")
+        upgrades.append("Consider: Berth optimization, yard expansion, or temporary logistics hubs")
+    else:
+        upgrades.append("Existing port capacity sufficient with optimized scheduling")
+    return upgrades
+
+def _calculate_energy_upgrades(required_mw: int, available_mw: int) -> List[str]:
+    """Calculate what energy upgrades are needed."""
+    upgrades = []
+    if required_mw > available_mw:
+        deficit = required_mw - available_mw
+        upgrades.append(f"Additional energy capacity needed: {deficit} MW")
+        upgrades.append("Consider: Peak load management, temporary power contracts, or efficiency improvements")
+    else:
+        upgrades.append("Existing energy capacity sufficient with load balancing")
+    return upgrades
+
+def _distribute_across_all_plants(steel_candidates: List[Dict[str, Any]],
+                                 ports_info: Dict[str, Any],
+                                 energy_info: Dict[str, Any],
+                                 required_increase_tpa: int,
+                                 max_roi_months: int) -> Dict[str, Any]:
+    """
+    NEW: Distribute production increase evenly across ALL steel plants
+    while considering port and energy constraints.
+    """
+    port_headroom_tpa = ports_info.get("port_headroom_tpa", 0)
+    energy_headroom_mw = energy_info.get("energy_headroom_mw", 0)
+    
+    n_plants = len(steel_candidates)
+    if n_plants == 0:
+        raise RuntimeError("No steel plants available for distribution.")
+    
+    # Calculate base allocation per plant
+    base_allocation_per_plant = required_increase_tpa // n_plants
+    remainder = required_increase_tpa % n_plants
+    
+    allocations = []
+    total_energy_required = 0
+    total_investment = 0
+    total_monthly_income = 0
+    
+    # Distribute allocation considering each plant's capacity constraints
+    for i, plant in enumerate(steel_candidates):
+        # Allocate base amount plus remainder distribution
+        allocated_tpa = base_allocation_per_plant
+        if i < remainder:
+            allocated_tpa += 1
+            
+        # Ensure we don't exceed plant's feasible capacity
+        feasible_tpa = plant["feasible_increase_tpa"]
+        final_allocation = min(allocated_tpa, feasible_tpa)
+        
+        # Calculate proportional energy and investment
+        energy_required = (final_allocation / max(1, plant["feasible_increase_tpa"])) * plant["energy_required_mw"]
+        investment = (final_allocation / max(1, plant["feasible_increase_tpa"])) * plant["capex_estimate_usd"]
+        monthly_income = (final_allocation / max(1, plant["feasible_increase_tpa"])) * plant["incr_monthly_income"]
+        
+        allocations.append({
+            "plant_id": plant["plant_id"],
+            "allocated_tpa": final_allocation,
+            "feasible_tpa": feasible_tpa,
+            "energy_required_mw": round(energy_required, 2),
+            "capex_allocated_usd": round(investment),
+            "monthly_income_allocated": round(monthly_income, 2)
+        })
+        
+        total_energy_required += energy_required
+        total_investment += investment
+        total_monthly_income += monthly_income
+    
+    # Calculate combined ROI
+    combined_roi = total_investment / total_monthly_income if total_monthly_income > 0 else float('inf')
+    
+    # Check constraints
+    breaches = []
+    mitigations = []
+    
+    total_allocated = sum(a["allocated_tpa"] for a in allocations)
+    if total_allocated < required_increase_tpa:
+        breaches.append("insufficient_capacity_distribution")
+        mitigations.append(f"Consider timeline extension or additional plants. Shortfall: {required_increase_tpa - total_allocated:,} tpa")
+    
+    if total_energy_required > energy_headroom_mw:
+        breaches.append("energy_shortfall")
+        mitigations.append(f"Phase implementation or procure additional energy. Deficit: {total_energy_required - energy_headroom_mw:.1f} MW")
+    
+    if required_increase_tpa > port_headroom_tpa:
+        breaches.append("port_throughput_shortfall")
+        mitigations.append(f"Stagger shipments or optimize logistics. Deficit: {required_increase_tpa - port_headroom_tpa:,} tpa")
+    
+    if combined_roi > max_roi_months:
+        breaches.append("roi_constraint")
+        mitigations.append(f"Optimize investment allocation or extend recovery period. Current ROI: {combined_roi:.1f} months")
+    
+    # Build action plan
+    plant_names = ", ".join([p["plant_id"] for p in steel_candidates])
+    action_plan = (
+        f"Distributed Action Plan across ALL steel plants ({plant_names}) to achieve +{required_increase_tpa:,} tpa.\n\n"
+        f"1) Allocate production increases evenly across all {n_plants} plants\n"
+        f"2) Coordinate energy dispatch of {total_energy_required:.1f} MW across power plants\n"
+        f"3) Reserve port throughput capacity of {required_increase_tpa:,} tpa\n"
+        f"4) Implement phased rollout with weekly progress monitoring\n"
+        f"5) Cross-train workforce for flexible resource allocation"
+    )
+    
+    return {
+        "recommended_plant": f"ALL PLANTS: {plant_names}",
+        "expected_increase_tpa": total_allocated,
+        "investment_usd": round(total_investment),
+        "roi_months": round(combined_roi, 2),
+        "energy_required_mw": round(total_energy_required, 2),
+        "summary": f"Production increase distributed across all {n_plants} steel plants with combined ROI analysis.",
+        "action_plan": action_plan,
+        "justification": {
+            "energy_headroom_mw": energy_headroom_mw,
+            "port_headroom_tpa": port_headroom_tpa,
+            "expected_increase_tpa": required_increase_tpa,
+            "breaches": breaches,
+            "mitigations": mitigations,
+            "distribution_strategy": "even_across_all_plants"
+        },
+        "explainability": {
+            "steel_em": [p.get("explainability", {}) for p in steel_candidates],
+            "ports_em": ports_info.get("explainability", {}),
+            "energy_em": energy_info.get("explainability", {})
+        },
+        "allocations": allocations,
+        "why_chosen": [
+            "Strategic decision to distribute capacity increase across entire steel production network",
+            "Enhances operational resilience by not over-relying on single plants",
+            "Allows for coordinated infrastructure upgrades across the enterprise",
+            "Supports balanced workforce development and resource allocation"
+        ],
+        "infrastructure_requirements": {
+            "ports_capacity_utilization": f"{(required_increase_tpa / port_headroom_tpa * 100) if port_headroom_tpa > 0 else 0:.1f}%",
+            "energy_capacity_utilization": f"{(total_energy_required / energy_headroom_mw * 100) if energy_headroom_mw > 0 else 0:.1f}%",
+            "recommended_port_upgrades": _calculate_port_upgrades(required_increase_tpa, port_headroom_tpa),
+            "recommended_energy_upgrades": _calculate_energy_upgrades(total_energy_required, energy_headroom_mw)
+        }
+    }
+
 def orchestrate_across_ems(steel_candidates: List[Dict[str, Any]],
                            ports_info: Dict[str, Any],
                            energy_info: Dict[str, Any],
                            group_systems: Dict[str, Any],
                            required_increase_tpa: int = 2_000_000,
-                           max_roi_months: int = 36) -> Dict[str, Any]:
+                           max_roi_months: int = 36,
+                           distribution_strategy: str = "selective") -> Dict[str, Any]:
+    
     if not steel_candidates:
         raise RuntimeError("No steel candidates provided to Group Manager.")
 
+    # NEW: Use distribution strategy
+    if distribution_strategy == "across_all":
+        return _distribute_across_all_plants(
+            steel_candidates, ports_info, energy_info, 
+            required_increase_tpa, max_roi_months
+        )
+    
+    # Existing selective logic for backward compatibility
     port_headroom_tpa = ports_info.get("port_headroom_tpa", 0)
     energy_headroom_mw = energy_info.get("energy_headroom_mw", 0)
 
@@ -104,7 +261,8 @@ def orchestrate_across_ems(steel_candidates: List[Dict[str, Any]],
                         "port_headroom_tpa": port_headroom_tpa,
                         "expected_increase_tpa": required_increase_tpa,
                         "breaches": [],
-                        "mitigations": []
+                        "mitigations": [],
+                        "distribution_strategy": "selective_combination"
                     },
                     "explainability": {
                         "steel_em": [c.get("explainability", {}) for c in combo],
@@ -120,7 +278,7 @@ def orchestrate_across_ems(steel_candidates: List[Dict[str, Any]],
                 }
 
     # If no perfect combo found, attempt greedy selection allowing combined ROI <= max
-    sorted_candidates = sorted(steel_candidates, key=lambda x: -x["feasible_increase_tpa"])
+    sorted_candidates = sorted(steel_candidates, key=lambda x: (-x["feasible_increase_tpa"], x["roi_months"]))
     selected = []
     total_inc = 0
     total_energy = 0
@@ -153,7 +311,8 @@ def orchestrate_across_ems(steel_candidates: List[Dict[str, Any]],
                     "port_headroom_tpa": port_headroom_tpa,
                     "expected_increase_tpa": required_increase_tpa,
                     "breaches": [],
-                    "mitigations": []
+                    "mitigations": [],
+                    "distribution_strategy": "greedy_selection"
                 },
                 "explainability": {
                     "steel_em": [s.get("explainability", {}) for s in selected],
@@ -198,7 +357,8 @@ def orchestrate_across_ems(steel_candidates: List[Dict[str, Any]],
             "breaches": breaches,
             "mitigations": mitigations,
             "energy_headroom_mw": energy_headroom_mw,
-            "port_headroom_tpa": port_headroom_tpa
+            "port_headroom_tpa": port_headroom_tpa,
+            "distribution_strategy": "best_effort_fallback"
         },
         "explainability": {
             "steel_em": top.get("explainability", {}),
