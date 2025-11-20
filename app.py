@@ -1,9 +1,9 @@
 # app.py
 import streamlit as st
 import plotly.graph_objects as go
-from decision_engine import run_simulation  # assumes decision_engine, enterprise_manager, group_manager are present
+from decision_engine import run_simulation  # expects decision_engine, enterprise_manager, group_manager present
 
-# Tooling note: local uploaded doc (not shown in UI). Use this path if tooling needs it.
+# Tooling note: local uploaded doc path (not shown in UI)
 FILE_URL = "/mnt/data/Operational Flow.docx"
 
 st.set_page_config(page_title="Original Enterprise AI Concept Prototype", layout="wide")
@@ -29,7 +29,7 @@ default_query = (
 query = st.text_input("Strategic Query:", default_query)
 
 def build_diagram_figure():
-    """Minimal, readable data-flow diagram."""
+    """Minimal, readable data-flow diagram. Fixed Plotly add_shape usage."""
     fig = go.Figure()
     fig.update_layout(
         width=1000,
@@ -40,8 +40,16 @@ def build_diagram_figure():
     )
 
     def draw_box(x, y, w, h, label, color):
-        fig.add_shape("rect", x0=x - w/2, y0=y - h/2, x1=x + w/2, y1=y + h/2,
-                      line=dict(color="#333", width=1), fillcolor=color)
+        # Correct usage: pass named parameters to add_shape
+        fig.add_shape(
+            type="rect",
+            x0=x - w/2,
+            y0=y - h/2,
+            x1=x + w/2,
+            y1=y + h/2,
+            line=dict(color="#333", width=1),
+            fillcolor=color,
+        )
         fig.add_annotation(x=x, y=y, text=f"<b>{label}</b>", showarrow=False, font=dict(size=12, color="#111"))
 
     # Local nodes (left)
@@ -60,8 +68,16 @@ def build_diagram_figure():
 
     # Straight arrows (clear)
     def arrow(ax, ay, x, y, width=2, head=3):
-        fig.add_annotation(x=x, y=y, ax=ax, ay=ay, showarrow=True,
-                           arrowhead=head, arrowwidth=width, arrowcolor="#222")
+        fig.add_annotation(
+            x=x,
+            y=y,
+            ax=ax,
+            ay=ay,
+            showarrow=True,
+            arrowhead=head,
+            arrowwidth=width,
+            arrowcolor="#222",
+        )
 
     # Local -> EM
     arrow(0.22, 0.28, 0.31, 0.28)
@@ -91,7 +107,8 @@ if st.button("Run Simulation"):
             # --- Recommendation summary ---
             st.subheader("Group Manager Recommendation")
             st.markdown(f"**Plant(s):** {result.get('recommended_plant', 'N/A')}")
-            st.markdown(f"**Expected Increase:** {result.get('expected_increase_tpa', 'N/A'):,} tpa")
+            expected_inc = result.get('expected_increase_tpa', 'N/A')
+            st.markdown(f"**Expected Increase:** {expected_inc:,} tpa" if isinstance(expected_inc, int) else f"**Expected Increase:** {expected_inc}")
             inv = result.get('investment_usd')
             if isinstance(inv, (int, float)):
                 st.markdown(f"**Investment (USD):** ${inv:,.0f}")
@@ -117,7 +134,6 @@ if st.button("Run Simulation"):
                         inc = c.get('feasible_increase_tpa', 0)
                         cap = c.get('capex_estimate_usd', 'N/A')
                         roi = c.get('roi_months', 'N/A')
-                        # keep it short and readable
                         cap_str = f"${cap:,.0f}" if isinstance(cap, (int, float)) else cap
                         st.write(f"- **{plant}** — Increase: {inc:,} tpa | CapEx: {cap_str} | ROI: {roi} months")
                 else:
@@ -128,7 +144,10 @@ if st.button("Run Simulation"):
                     pid = su.get('plant_id', 'N/A')
                     cap_tpa = su.get('capacity_tpa', 'N/A')
                     util = su.get('utilization', 'N/A')
-                    st.write(f"- {pid} — Capacity: {cap_tpa:,} tpa | Utilization: {util:.2f}" if isinstance(util, (int, float)) else f"- {pid} — Capacity: {cap_tpa:,} tpa")
+                    if isinstance(util, (int, float)):
+                        st.write(f"- {pid} — Capacity: {cap_tpa:,} tpa | Utilization: {util:.2f}")
+                    else:
+                        st.write(f"- {pid} — Capacity: {cap_tpa:,} tpa")
 
             # Ports: show total headroom in Mtpa and list ports succinctly
             with cols[1]:
@@ -167,47 +186,90 @@ if st.button("Run Simulation"):
             st.subheader("Data Flow Diagram")
             st.plotly_chart(build_diagram_figure(), use_container_width=True)
 
-            # Rationale: friendly explanation (no raw JSON)
+            # Rationale for Action Plan (detailed, human-friendly)
             st.subheader("Rationale for Action Plan")
-            st.markdown(result.get("summary", ""))
+            # summary is a short human sentence from the Group Manager
+            st.markdown(result.get("summary", "No rationale available."))
 
-            justification = result.get("justification", {})
-            if justification:
-                # map breach codes to readable text
+            # Provide explicit reasoning: which plants were selected, why, and resource checks
+            justification = result.get("justification", {}) or {}
+            explain = result.get("explainability", {}) or result.get("explainability", {})
+
+            # Show selected plants breakdown if available
+            recommended = result.get("recommended_plant")
+            if recommended:
+                st.markdown("**Selected Plant(s):**")
+                st.write(f"- {recommended}")
+
+            # Combined ROI / numeric context
+            ctx_lines = []
+            if result.get("roi_months") is not None:
+                ctx_lines.append(f"- Combined ROI (months): {result.get('roi_months')}")
+            if result.get("expected_increase_tpa") is not None:
+                ctx_lines.append(f"- Expected total increase: {result.get('expected_increase_tpa'):,} tpa")
+            if justification.get("energy_headroom_mw") is not None:
+                ctx_lines.append(f"- Energy headroom: {justification.get('energy_headroom_mw')} MW")
+            if justification.get("port_headroom_tpa") is not None:
+                ph = justification.get('port_headroom_tpa')
+                ctx_lines.append(f"- Port headroom: {ph:,} tpa ({ph / 1_000_000:.2f} Mtpa)")
+
+            if ctx_lines:
+                st.markdown("**Numeric context used in decision:**")
+                for l in ctx_lines:
+                    st.markdown(l)
+
+            # Explain the reasoning in plain English
+            reasons = []
+            breaches = justification.get("breaches", [])
+            if not breaches:
+                reasons.append("The selected combination meets the target increase while satisfying combined ROI and resource constraints (energy & port capacity).")
+            else:
+                reasons.append("A perfect single-plant solution was not available; the system evaluated combinations and selected the best feasible option.")
+                # add human-friendly breach explanations
                 breach_map = {
-                    "insufficient_single_plant_increase": "No single plant could deliver the full required increase; combined plants were considered.",
-                    "roi_exceeds_limit": "One or more individual candidates had ROI above the required recovery period.",
-                    "energy_shortfall": "Energy availability is a constraint for the uplift.",
-                    "port_shortfall": "Port handling capacity is a constraint for shipments."
+                    "insufficient_single_plant_increase": "No single plant could deliver the full required increase.",
+                    "roi_exceeds_limit": "One or more individual candidates had ROI above the recovery threshold.",
+                    "energy_shortfall": "Energy headroom is limited; allocation was considered when selecting plants.",
+                    "port_shortfall": "Port handling capacity is limited; shipments must be staggered or capacity reserved."
                 }
+                for b in breaches:
+                    reasons.append(f"- {breach_map.get(b, b)}")
 
-                breaches = justification.get("breaches", [])
-                mitigations = justification.get("mitigations", [])
+            # Additional suggested mitigations
+            mitigations = justification.get("mitigations", [])
+            if mitigations:
+                reasons.append("Suggested mitigations were considered and appended to the action plan where appropriate.")
 
-                # numeric context
-                ctx = []
-                if justification.get("energy_headroom_mw") is not None:
-                    ctx.append(f"- Energy headroom: {justification.get('energy_headroom_mw')} MW")
-                if justification.get("port_headroom_tpa") is not None:
-                    ph = justification.get("port_headroom_tpa")
-                    ctx.append(f"- Port headroom: {ph:,} tpa ({ph / 1_000_000:.2f} Mtpa)")
-                if result.get("expected_increase_tpa") is not None:
-                    ctx.append(f"- Expected increase (tpa): {result.get('expected_increase_tpa'):,} tpa")
+            st.markdown("**Why this solution was chosen (summary):**")
+            for r in reasons:
+                st.markdown(f"- {r}")
 
-                if ctx:
-                    st.markdown("**Context:**")
-                    for line in ctx:
-                        st.markdown(line)
-
-                if breaches:
-                    st.markdown("**Identified Constraints / Breaches:**")
-                    for b in breaches:
-                        st.markdown(f"- {breach_map.get(b, b)}")
-
-                if mitigations:
-                    st.markdown("**Suggested Mitigations / Next Steps:**")
-                    for m in mitigations:
-                        st.markdown(f"- {m}")
+            # If explainability per-EM is available, show compact bullet lines per EM
+            ex = result.get("explainability") or result.get("explainability", {})
+            if ex:
+                st.markdown("**Explainability (compact):**")
+                # steel_em may be list (combo) or dict
+                steel_ex = ex.get("steel_em")
+                if steel_ex:
+                    if isinstance(steel_ex, list):
+                        for i, s in enumerate(steel_ex, 1):
+                            sc = s or {}
+                            spare = sc.get("spare_capacity_tpa")
+                            util = sc.get("utilization")
+                            st.markdown(f"- Steel plant {i}: spare capacity {spare if spare is not None else 'N/A'} tpa | utilization {util if util is not None else 'N/A'}")
+                    else:
+                        sc = steel_ex or {}
+                        st.markdown(f"- Steel EM: spare capacity {sc.get('spare_capacity_tpa','N/A')} tpa | utilization {sc.get('utilization','N/A')}")
+                ports_ex = ex.get("ports_em") or justification.get("ports_em") or {}
+                if ports_ex:
+                    ph = ports_ex.get("port_headroom_tpa") or justification.get("port_headroom_tpa")
+                    if ph is not None:
+                        st.markdown(f"- Ports headroom: {ph:,} tpa ({ph/1_000_000:.2f} Mtpa)")
+                energy_ex = ex.get("energy_em") or justification.get("energy_em") or {}
+                if energy_ex:
+                    eh = energy_ex.get("energy_headroom_mw") or justification.get("energy_headroom_mw")
+                    if eh is not None:
+                        st.markdown(f"- Energy headroom: {eh} MW")
 
             # budget flag note
             if result.get("budget_flag", False):
