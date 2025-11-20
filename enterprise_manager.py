@@ -8,7 +8,8 @@ from typing import List, Dict, Any
 def evaluate_steel(steel_plants: List[Dict[str, Any]], target_increase_tpa: int) -> List[Dict[str, Any]]:
     """
     For each plant, compute a candidate object describing a realistic uplift,
-    its capex, ROI, energy need and explainability dict.
+    its capex, ROI, energy need and an explainability dict.
+    Now includes incr_monthly_income (used to compute combined ROI for combos).
     """
     candidates = []
     for p in steel_plants:
@@ -21,17 +22,20 @@ def evaluate_steel(steel_plants: List[Dict[str, Any]], target_increase_tpa: int)
         if util < 0.65:
             feasible = min(spare_tpa, int(0.30 * capacity))
 
-        # energy scales with feasible uplift relative to a baseline factor
-        base_energy_per_10pct = p.get("energy_required_mw", 0.5)  # baseline number in mock is per ~10% uplift
+        # energy scales with feasible uplift relative to baseline
+        base_energy_per_10pct = p.get("energy_required_mw", 0.5)  # baseline in mock corresponds to ~10% uplift
         if capacity > 0:
-            # normalize: assume base energy corresponds to ~10% capacity uplift
             energy_required_mw = base_energy_per_10pct * (feasible / max(1, 0.10 * capacity))
         else:
             energy_required_mw = base_energy_per_10pct
 
         capex = p.get("capex_estimate_usd", 500000)
-        # simple incremental monthly income estimate => used for ROI
-        incr_monthly_income = max(1000, (feasible / max(1, capacity)) * 200000)
+
+        # incremental monthly income estimate — used for ROI calculation
+        # assume an annual incremental margin proportional to feasible fraction of capacity
+        annual_incremental_revenue = max(10000, (feasible / max(1, capacity)) * 2_400_000)  # simple proxy -> USD/year
+        incr_monthly_income = max(100, round(annual_incremental_revenue / 12, 2))
+
         roi_months = max(1, round(capex / incr_monthly_income, 1))
 
         candidate = {
@@ -42,9 +46,11 @@ def evaluate_steel(steel_plants: List[Dict[str, Any]], target_increase_tpa: int)
             "energy_required_mw": round(max(0.1, energy_required_mw), 3),
             "capex_estimate_usd": capex,
             "roi_months": roi_months,
+            "incr_monthly_income": incr_monthly_income,
             "explainability": {
                 "spare_capacity_tpa": spare_tpa,
-                "utilization": util
+                "utilization": util,
+                "annual_incremental_revenue_estimate": annual_incremental_revenue
             }
         }
         candidates.append(candidate)
@@ -56,10 +62,6 @@ def evaluate_steel(steel_plants: List[Dict[str, Any]], target_increase_tpa: int)
 def evaluate_ports(ports_payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     Convert port capacities in Mtpa to tonnes and compute headroom (tpa).
-    ports_payload contains ports_list entries with:
-      - annual_capacity_mt (million tonnes per annum)
-      - current_throughput_mt (million tonnes per annum)
-    Returns aggregate headroom in tonnes (tpa) and per-port details.
     """
     ports_list = ports_payload.get("ports_list", [])
     total_capacity_tpa = 0
@@ -77,10 +79,6 @@ def evaluate_ports(ports_payload: Dict[str, Any]) -> Dict[str, Any]:
 def evaluate_energy(energy_payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     Aggregate energy availability across plants.
-    energy_units_list entries have:
-      - plant_id
-      - capacity_mw
-      - available_mw
     """
     units = energy_payload.get("energy_units_list", [])
     total_available = 0
