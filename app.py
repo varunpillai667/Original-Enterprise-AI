@@ -24,7 +24,7 @@ Enterprise Managers cannot access the Group Manager or any cross-enterprise data
 """
 )
 
-# Default strategic query (user requested exact phrasing)
+# Default strategic query
 default_query = (
     "HOW CAN WE INCREASE THE STEEL PRODUCTION BY 2 MTPA WHERE THE ADDITIONAL INVESTMENT MADE "
     "SHOULD BE RECOVERED IN LESS THAN 9 MONTHS."
@@ -117,7 +117,7 @@ def build_diagram_figure():
 if st.button("Run Simulation"):
     with st.spinner("Running cross-EM simulation and building diagram..."):
         try:
-            # run simulation (decision_engine will parse query constraints and use the mock dataset)
+            # run simulation (decision_engine will parse query constraints and return combined ROI/selection data)
             result = run_simulation(query)
 
             # Recommendation card (concise)
@@ -126,7 +126,7 @@ if st.button("Run Simulation"):
             st.markdown(f"**Expected Increase:** {result.get('expected_increase_tpa', 'N/A')} tpa")
             inv = result.get('investment_usd')
             st.markdown(f"**Investment (USD):** ${inv:,}" if isinstance(inv, (int, float)) else f"**Investment (USD):** {inv}")
-            st.markdown(f"**ROI:** {result.get('roi_months', 'N/A')} months")
+            st.markdown(f"**Combined ROI:** {result.get('roi_months', 'N/A')} months")
             st.markdown(f"**Energy Required:** {result.get('energy_required_mw', 'N/A')} MW")
 
             # Action plan (clear instruction)
@@ -141,7 +141,8 @@ if st.button("Run Simulation"):
                 for c in result["em_summaries"].get("steel_top_candidates", []):
                     st.write(
                         f"{c.get('plant_id','N/A')}: +{c.get('feasible_increase_tpa','N/A')} tpa — "
-                        f"CapEx ${c.get('capex_estimate_usd','N/A'):,} — Energy {c.get('energy_required_mw','N/A')} MW — ROI {c.get('roi_months','N/A')}m"
+                        f"CapEx ${c.get('capex_estimate_usd','N/A'):,} — Energy {c.get('energy_required_mw','N/A')} MW — "
+                        f"ROI {c.get('roi_months','N/A')}m — Monthly incremental income ${c.get('incr_monthly_income','N/A'):,}"
                     )
                 st.markdown("**All Steel Units (Company B):**")
                 for su in result["em_summaries"].get("steel_units_details", []):
@@ -154,7 +155,6 @@ if st.button("Run Simulation"):
             with cols[1]:
                 st.markdown("**Ports EM — Aggregate**")
                 p = result["em_summaries"].get("ports_info", {})
-                # ports_info headroom is provided in tonnes (tpa)
                 port_headroom_tpa = p.get('port_headroom_tpa')
                 if port_headroom_tpa is not None:
                     st.write(f"Aggregate port headroom: {port_headroom_tpa:,} tpa ({port_headroom_tpa/1_000_000:.2f} Mtpa)")
@@ -184,13 +184,12 @@ if st.button("Run Simulation"):
             st.subheader("Rationale for Action Plan")
             st.markdown(result.get("summary", ""))
 
-            # Render "justification" in friendly text rather than raw JSON
+            # Friendly justification
             justification = result.get("justification", {})
             if justification:
-                # friendly mappings for breach codes
                 breach_map = {
-                    "insufficient_single_plant_increase": "No single plant can deliver the full required increase; multiple plants or a combined plan is needed.",
-                    "roi_exceeds_limit": "Estimated ROI for the candidate exceeds the required maximum recovery period.",
+                    "insufficient_single_plant_increase": "No single plant could deliver the full required increase — a combined plan is needed.",
+                    "roi_exceeds_limit": "Estimated ROI for candidate(s) individually exceeded the limit.",
                     "energy_shortfall": "Available energy headroom is insufficient for the uplift requested.",
                     "port_shortfall": "Port headroom/capacity is insufficient for the additional shipments required."
                 }
@@ -198,7 +197,7 @@ if st.button("Run Simulation"):
                 breaches = justification.get("breaches", [])
                 mitigations = justification.get("mitigations", [])
 
-                # show numeric context where available
+                # numeric context
                 ctx_lines = []
                 if "energy_headroom_mw" in justification:
                     ctx_lines.append(f"- Energy headroom: {justification.get('energy_headroom_mw')} MW")
@@ -215,8 +214,7 @@ if st.button("Run Simulation"):
                 if breaches:
                     st.markdown("**Breaches / Constraints Identified:**")
                     for b in breaches:
-                        human = breach_map.get(b, b)
-                        st.markdown(f"- {human}")
+                        st.markdown(f"- {breach_map.get(b, b)}")
 
                 if mitigations:
                     st.markdown("**Suggested Mitigations / Next Steps:**")
