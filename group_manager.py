@@ -1,62 +1,66 @@
 # group_manager.py
 from typing import Dict, Any, List
 import itertools
-import math
 
-def _combined_roi_months(combo: List[Dict[str, Any]]) -> float:
-    total_capex = sum(c.get("capex_estimate_usd", 0) for c in combo)
-    total_monthly_income = sum(c.get("incr_monthly_income", 0) for c in combo)
+def _combined_roi_months_total(capex_total: float, total_monthly_income: float) -> float:
     if total_monthly_income <= 0:
         return float("inf")
-    return round(total_capex / total_monthly_income, 2)
+    return round(capex_total / total_monthly_income, 2)
 
-def _allocate_required(combo: List[Dict[str, Any]], required: int) -> List[Dict[str, Any]]:
+def _allocate_required_with_expansion(combo: List[Dict[str, Any]], required: int) -> List[Dict[str, Any]]:
     """
-    Allocate required tpa across combo plants proportionally to feasible_increase_tpa
-    without exceeding per-plant feasible.
-    Returns list of dicts with plant_id, allocated_tpa, feasible_tpa, capex_allocated_usd (pro rata).
+    Allocate required tpa across combo plants using both operational feasible and expansion if needed.
+    Strategy:
+      - First use each plant's feasible_increase_tpa (operational uplift).
+      - If still short, allocate expansion across plants ordered by cheapest expansion_cost_per_tpa_usd.
+    Returns list with per-plant:
+      plant_id, allocated_tpa, allocated_operational_tpa, allocated_expansion_tpa, op_capex, expansion_capex
     """
+    # start with operational allocations (use all feasible first)
     allocations = []
-    feasible_total = sum(c["feasible_increase_tpa"] for c in combo)
-    if feasible_total <= 0:
-        return []
     remaining = required
-    # allocate proportionally but cap at feasible per plant and adjust
-    # first pass proportional allocation
     for c in combo:
-        prop = c["feasible_increase_tpa"] / feasible_total
-        alloc = min(c["feasible_increase_tpa"], int(round(required * prop)))
-        allocations.append({"plant_id": c["plant_id"], "allocated_tpa": alloc, "feasible_tpa": c["feasible_increase_tpa"], "capex_estimate_usd": c.get("capex_estimate_usd", 0), "incr_monthly_income": c.get("incr_monthly_income",0)})
-        remaining -= alloc
+        op = min(c["feasible_increase_tpa"], remaining)
+        allocations.append({
+            "plant_id": c["plant_id"],
+            "allocated_operational_tpa": op,
+            "allocated_expansion_tpa": 0,
+            "feasible_tpa": c["feasible_increase_tpa"],
+            "op_capex": c.get("op_capex_estimate_usd", 0),
+            "expansion_cost_per_tpa_usd": c.get("expansion_cost_per_tpa_usd", 3000),
+            "capex_estimate_usd": c.get("capex_estimate_usd", 0),
+            "incr_monthly_income": c.get("incr_monthly_income", 0)
+        })
+        remaining -= op
 
-    # distribute any remaining one-by-one to plants with spare feasible capacity
-    idx = 0
-    while remaining > 0:
-        placed = False
+    if remaining <= 0:
+        # no expansion needed
         for a in allocations:
-            spare = a["feasible_tpa"] - a["allocated_tpa"]
-            if spare > 0:
-                a["allocated_tpa"] += 1
-                remaining -= 1
-                placed = True
-                if remaining == 0:
-                    break
-        if not placed:
-            # cannot allocate more
-            break
-        idx += 1
-        if idx > 10000:
-            break
+            a["allocated_tpa"] = a["allocated_operational_tpa"]
+            a["expansion_capex"] = 0
+            a["op_capex_used"] = a["op_capex"] if a["allocated_operational_tpa"]>0 else 0
+        return allocations
 
-    # compute capex allocation pro-rata to allocated_tpa relative to feasible_tpa
+    # need expansion: sort allocations by expansion cost per tpa (cheapest first)
+    sorted_alloc_idx = sorted(range(len(allocations)), key=lambda i: allocations[i]["expansion_cost_per_tpa_usd"])
+    # allocate expansion tonnage one-by-one (simple) — but we can allocate proportionally instead
+    for idx in sorted_alloc_idx:
+        if remaining <= 0:
+            break
+        # allow expansion up to some practical limit per plant — for prototype allow up to 50% of capacity as expansion
+        # we need capacity info - derive from feasible proportion: use feasible_tpa as base; allow additional up to double feasible for prototype
+        # Simpler: allow unlimited for prototype but compute expansion capex accordingly
+        add = remaining  # allocate all to cheapest first (fast), alternatively distribute
+        allocations[idx]["allocated_expansion_tpa"] += add
+        remaining -= add
+
+    # compute capex used
     for a in allocations:
-        feasible = a["feasible_tpa"] or 1
-        capex = a.get("capex_estimate_usd", 0)
-        # allocate capex proportionally to fraction of feasible used
-        frac = a["allocated_tpa"] / feasible if feasible > 0 else 0
-        a["capex_allocated_usd"] = int(round(capex * frac))
-        # remove internal fields not needed further
-        a.pop("capex_estimate_usd", None)
+        a["allocated_tpa"] = a["allocated_operational_tpa"] + a["allocated_expansion_tpa"]
+        a["expansion_capex"] = int(round(a["allocated_expansion_tpa"] * a["expansion_cost_per_tpa_usd"]))
+        # op capex used proportional to op allocated (simple heuristic)
+        a["op_capex_used"] = a["op_capex"] if a["allocated_operational_tpa"]>0 else 0
+
     return allocations
 
 def orchestrate_across_ems(steel_candidates: List[Dict[str, Any]],
@@ -73,136 +77,138 @@ def orchestrate_across_ems(steel_candidates: List[Dict[str, Any]],
 
     n = len(steel_candidates)
 
-    # Try all combinations 1..N (prefer smaller combos)
+    # Step 1: try combos using only operational feasible (no expansion)
     for r in range(1, n + 1):
         for combo in itertools.combinations(steel_candidates, r):
-            total_increase = sum(c["feasible_increase_tpa"] for c in combo)
-            total_energy_req = sum(c["energy_required_mw"] for c in combo)
-            total_shipment_units = total_increase
-            combined_roi = _combined_roi_months(combo)
-            if total_increase >= required_increase_tpa and total_energy_req <= energy_headroom_mw and total_shipment_units <= port_headroom_tpa and combined_roi <= max_roi_months:
-                # compute allocation per plant for clarity in UI
-                allocations = _allocate_required(combo, required_increase_tpa)
+            total_op = sum(c["feasible_increase_tpa"] for c in combo)
+            total_energy = sum(c["energy_required_mw"] for c in combo)
+            if total_op >= required_increase_tpa and total_energy <= energy_headroom_mw and total_op <= port_headroom_tpa:
+                # compute combined op capex and monthly income
+                total_op_capex = sum(c.get("op_capex_estimate_usd", 0) for c in combo)
+                total_monthly = sum(c.get("incr_monthly_income", 0) for c in combo)
+                combined_roi = _combined_roi_months_total(total_op_capex, total_monthly)
+                if combined_roi <= max_roi_months:
+                    # allocate operational only
+                    allocations = _allocate_required_with_expansion(combo, required_increase_tpa)
+                    names = ", ".join([c["plant_id"] for c in combo])
+                    action_plan = f"Use operational uplifts across {names} to meet target. Monitor and scale."
+                    return {
+                        "recommended_plant": names,
+                        "expected_increase_tpa": required_increase_tpa,
+                        "investment_usd": total_op_capex,
+                        "roi_months": combined_roi,
+                        "energy_required_mw": sum(c["energy_required_mw"] for c in combo),
+                        "summary": "Operational uplift across selected plants meets the target.",
+                        "action_plan": action_plan,
+                        "justification": {"energy_headroom_mw": energy_headroom_mw, "port_headroom_tpa": port_headroom_tpa, "breaches": []},
+                        "explainability": {"steel_em": [c.get("explainability", {}) for c in combo]},
+                        "allocations": allocations,
+                        "why_chosen": ["Operational uplift suffices; combined ROI within constraint."]
+                    }
+
+    # Step 2: try combos allowing expansion capex (we will compute required expansion and its capex)
+    for r in range(1, n + 1):
+        for combo in itertools.combinations(steel_candidates, r):
+            total_op = sum(c["feasible_increase_tpa"] for c in combo)
+            total_energy_op = sum(c["energy_required_mw"] for c in combo)
+            # if operational already covers, we skipped earlier; here total_op < required
+            # compute remaining needed beyond op
+            remaining_needed = max(0, required_increase_tpa - total_op)
+            # approximate extra energy per tpa for expansion: use average energy_required_mw per op tonne ratio
+            if total_op > 0:
+                energy_per_tpa = total_energy_op / total_op
+            else:
+                # fallback small ratio
+                energy_per_tpa = 0.00001
+            extra_energy_needed = remaining_needed * energy_per_tpa
+            if (total_energy_op + extra_energy_needed) > energy_headroom_mw:
+                # cannot supply energy even with expansion
+                continue
+            # compute expansion capex: distribute remaining_needed to plants by cheapest expansion_cost_per_tpa_usd
+            # simple: allocate all remaining to cheapest plant(s) in combo
+            combo_sorted = sorted(combo, key=lambda c: c.get("expansion_cost_per_tpa_usd", 3000))
+            # compute total expansion capex
+            expansion_capex_total = 0
+            remaining = remaining_needed
+            for c in combo_sorted:
+                take = remaining  # for prototype, allocate to cheapest primarily
+                cost_per = c.get("expansion_cost_per_tpa_usd", 3000)
+                expansion_capex_total += take * cost_per
+                remaining -= take
+                if remaining <= 0:
+                    break
+            # op capex
+            op_capex_total = sum(c.get("op_capex_estimate_usd", 0) for c in combo)
+            total_capex = int(round(op_capex_total + expansion_capex_total))
+            total_monthly_income = sum(c.get("incr_monthly_income", 0) for c in combo)
+            # If we expand, assume incremental monthly income scales with allocated tonnage; for simplicity scale pro-rata:
+            if total_op > 0:
+                scale_factor = required_increase_tpa / max(1, total_op)
+            else:
+                scale_factor = 1 + (remaining_needed / (sum(c.get("capacity_tpa",1) for c in combo)))
+            combined_monthly_income = total_monthly_income * scale_factor
+            combined_roi = _combined_roi_months_total(total_capex, combined_monthly_income)
+            if combined_roi <= max_roi_months and required_increase_tpa <= port_headroom_tpa:
+                allocations = _allocate_required_with_expansion(combo, required_increase_tpa)
                 names = ", ".join([c["plant_id"] for c in combo])
                 action_plan = (
-                    f"Combined Action Plan across {names} to achieve +{required_increase_tpa:,} tpa.\n"
-                    "1) Run coordinated pilots at selected plants and validate processes.\n"
-                    f"2) Allocate energy dispatch of {total_energy_req} MW.\n"
-                    f"3) Reserve port throughput of approx {required_increase_tpa:,} tpa and stagger shipments.\n"
-                    "4) Monitor KPIs weekly and scale rollout."
+                    f"Combined operational + expansion plan across {names} to achieve +{required_increase_tpa:,} tpa.\n"
+                    "Allocate expansion capex and secure energy & port reservations. Pilot and validate."
                 )
                 return {
                     "recommended_plant": names,
                     "expected_increase_tpa": required_increase_tpa,
-                    "investment_usd": sum(c.get("capex_estimate_usd", 0) for c in combo),
+                    "investment_usd": total_capex,
                     "roi_months": combined_roi,
-                    "energy_required_mw": total_energy_req,
-                    "summary": "Combined candidate set meets target and combined ROI constraint.",
+                    "energy_required_mw": total_energy_op + extra_energy_needed,
+                    "summary": "Combined operational uplift + planned expansion meets the target within ROI.",
                     "action_plan": action_plan,
-                    "justification": {
-                        "energy_headroom_mw": energy_headroom_mw,
-                        "port_headroom_tpa": port_headroom_tpa,
-                        "expected_increase_tpa": required_increase_tpa,
-                        "breaches": [],
-                        "mitigations": []
-                    },
-                    "explainability": {
-                        "steel_em": [c.get("explainability", {}) for c in combo],
-                        "ports_em": ports_info.get("explainability", {}),
-                        "energy_em": energy_info.get("explainability", {})
-                    },
+                    "justification": {"energy_headroom_mw": energy_headroom_mw, "port_headroom_tpa": port_headroom_tpa, "breaches": []},
+                    "explainability": {"steel_em": [c.get("explainability", {}) for c in combo]},
                     "allocations": allocations,
                     "why_chosen": [
-                        "Selected plants collectively deliver the required uplift.",
-                        "Combined ROI meets the recovery constraint.",
-                        "Energy and port headroom are sufficient for the plan."
+                        "Operational uplift + targeted expansion delivers required capacity.",
+                        "Expansion capex allocated to lowest $/tpa plant(s).",
+                        "Combined ROI meets recovery constraint."
                     ]
                 }
 
-    # If no perfect combo found, attempt greedy selection allowing combined ROI <= max
+    # Final fallback: best-effort greedy (same as earlier)
     sorted_candidates = sorted(steel_candidates, key=lambda x: -x["feasible_increase_tpa"])
     selected = []
     total_inc = 0
     total_energy = 0
-    total_shipments = 0
     for c in sorted_candidates:
-        # tentatively add and compute combined ROI
         selected.append(c)
         total_inc += c["feasible_increase_tpa"]
         total_energy += c["energy_required_mw"]
-        total_shipments += c["feasible_increase_tpa"]
-        combined_roi = _combined_roi_months(selected)
-        if total_inc >= required_increase_tpa and total_energy <= energy_headroom_mw and total_shipments <= port_headroom_tpa and combined_roi <= max_roi_months:
-            allocations = _allocate_required(selected, required_increase_tpa)
-            names = ", ".join([s["plant_id"] for s in selected])
-            action_plan = (
-                f"Greedy combined Action Plan across {names} to achieve +{required_increase_tpa:,} tpa.\n"
-                f"Combined ROI estimated: {combined_roi} months.\n"
-                "Coordinate energy and port reservations accordingly and run pilots."
-            )
-            return {
-                "recommended_plant": names,
-                "expected_increase_tpa": required_increase_tpa,
-                "investment_usd": sum(s.get("capex_estimate_usd", 0) for s in selected),
-                "roi_months": combined_roi,
-                "energy_required_mw": total_energy,
-                "summary": "Greedy combined candidate meets target under combined ROI constraint.",
-                "action_plan": action_plan,
-                "justification": {
-                    "energy_headroom_mw": energy_headroom_mw,
-                    "port_headroom_tpa": port_headroom_tpa,
-                    "expected_increase_tpa": required_increase_tpa,
-                    "breaches": [],
-                    "mitigations": []
-                },
-                "explainability": {
-                    "steel_em": [s.get("explainability", {}) for s in selected],
-                    "ports_em": ports_info.get("explainability", {}),
-                    "energy_em": energy_info.get("explainability", {})
-                },
-                "allocations": allocations,
-                "why_chosen": [
-                    "Combined plants were selected to reach the target while meeting combined ROI.",
-                    "Greedy selection prioritized plants with highest feasible uplift."
-                ]
-            }
+        if total_inc >= required_increase_tpa:
+            break
 
-    # Final fallback: best-effort top plants (report breaches + mitigations)
+    # if still not enough, return best candidate with mitigations
     top = sorted_candidates[0]
     breaches = []
     mitigations = []
     if top["feasible_increase_tpa"] < required_increase_tpa:
         breaches.append("insufficient_single_plant_increase")
-        mitigations.append("combine multiple plants or extend timeline")
+        mitigations.append("combine multiple plants or plan expansion investments")
     if top["energy_required_mw"] > energy_headroom_mw:
         breaches.append("energy_shortfall")
         mitigations.append("phase energy allocation; procure temporary energy")
-    if top["feasible_increase_tpa"] > port_headroom_tpa:
+    if required_increase_tpa > port_headroom_tpa:
         breaches.append("port_shortfall")
         mitigations.append("stagger shipments; temporary staging")
 
-    action_plan = (
-        f"Top candidate (soft): {top['plant_id']} yields {top['feasible_increase_tpa']:,} tpa uplift. "
-        f"Mitigations: {', '.join(mitigations)}. Pilot and re-evaluate."
-    )
+    action_plan = f"Top candidate (soft): {top['plant_id']} yields {top['feasible_increase_tpa']:,} tpa uplift. Mitigations: {', '.join(mitigations)}."
 
     return {
         "recommended_plant": top["plant_id"],
         "expected_increase_tpa": top["feasible_increase_tpa"],
         "investment_usd": top["capex_estimate_usd"],
-        "roi_months": top["roi_months"],
-        "energy_required_mw": top["energy_required_mw"],
+        "roi_months": top.get("roi_months"),
+        "energy_required_mw": top.get("energy_required_mw"),
         "summary": "Best-effort candidate selected; does not meet all constraints.",
         "action_plan": action_plan,
-        "justification": {
-            "breaches": breaches,
-            "mitigations": mitigations,
-            "energy_headroom_mw": energy_headroom_mw,
-            "port_headroom_tpa": port_headroom_tpa
-        },
-        "explainability": {
-            "steel_em": top.get("explainability", {}),
-            "ports_em": ports_info.get("explainability", {}),
-            "energy_em": energy_info.get("explainability", {})
-        }
+        "justification": {"breaches": breaches, "mitigations": mitigations, "energy_headroom_mw": energy_headroom_mw, "port_headroom_tpa": port_headroom_tpa},
+        "explainability": {"steel_em": top.get("explainability", {})}
     }
