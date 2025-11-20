@@ -1,30 +1,70 @@
 # group_manager.py
-"""
-Group-level orchestrator: finds a combination of steel plants (and checks energy & port capacity)
-that meets the required increase in tpa while ensuring the combined ROI meets the constraint.
-"""
-
 from typing import Dict, Any, List
 import itertools
+import math
 
 def _combined_roi_months(combo: List[Dict[str, Any]]) -> float:
-    """
-    Compute combined ROI in months for the provided combo.
-    combined_roi_months = total_capex / total_incremental_monthly_income
-    If incremental monthly income is zero, return a very large number.
-    """
     total_capex = sum(c.get("capex_estimate_usd", 0) for c in combo)
     total_monthly_income = sum(c.get("incr_monthly_income", 0) for c in combo)
     if total_monthly_income <= 0:
         return float("inf")
     return round(total_capex / total_monthly_income, 2)
 
+def _allocate_required(combo: List[Dict[str, Any]], required: int) -> List[Dict[str, Any]]:
+    """
+    Allocate required tpa across combo plants proportionally to feasible_increase_tpa
+    without exceeding per-plant feasible.
+    Returns list of dicts with plant_id, allocated_tpa, feasible_tpa, capex_allocated_usd (pro rata).
+    """
+    allocations = []
+    feasible_total = sum(c["feasible_increase_tpa"] for c in combo)
+    if feasible_total <= 0:
+        return []
+    remaining = required
+    # allocate proportionally but cap at feasible per plant and adjust
+    # first pass proportional allocation
+    for c in combo:
+        prop = c["feasible_increase_tpa"] / feasible_total
+        alloc = min(c["feasible_increase_tpa"], int(round(required * prop)))
+        allocations.append({"plant_id": c["plant_id"], "allocated_tpa": alloc, "feasible_tpa": c["feasible_increase_tpa"], "capex_estimate_usd": c.get("capex_estimate_usd", 0), "incr_monthly_income": c.get("incr_monthly_income",0)})
+        remaining -= alloc
+
+    # distribute any remaining one-by-one to plants with spare feasible capacity
+    idx = 0
+    while remaining > 0:
+        placed = False
+        for a in allocations:
+            spare = a["feasible_tpa"] - a["allocated_tpa"]
+            if spare > 0:
+                a["allocated_tpa"] += 1
+                remaining -= 1
+                placed = True
+                if remaining == 0:
+                    break
+        if not placed:
+            # cannot allocate more
+            break
+        idx += 1
+        if idx > 10000:
+            break
+
+    # compute capex allocation pro-rata to allocated_tpa relative to feasible_tpa
+    for a in allocations:
+        feasible = a["feasible_tpa"] or 1
+        capex = a.get("capex_estimate_usd", 0)
+        # allocate capex proportionally to fraction of feasible used
+        frac = a["allocated_tpa"] / feasible if feasible > 0 else 0
+        a["capex_allocated_usd"] = int(round(capex * frac))
+        # remove internal fields not needed further
+        a.pop("capex_estimate_usd", None)
+    return allocations
+
 def orchestrate_across_ems(steel_candidates: List[Dict[str, Any]],
                            ports_info: Dict[str, Any],
                            energy_info: Dict[str, Any],
                            group_systems: Dict[str, Any],
                            required_increase_tpa: int = 2_000_000,
-                           max_roi_months: int = 9) -> Dict[str, Any]:
+                           max_roi_months: int = 36) -> Dict[str, Any]:
     if not steel_candidates:
         raise RuntimeError("No steel candidates provided to Group Manager.")
 
@@ -33,36 +73,36 @@ def orchestrate_across_ems(steel_candidates: List[Dict[str, Any]],
 
     n = len(steel_candidates)
 
-    # Try combinations of plants (1..N). Prefer smaller combos first.
+    # Try all combinations 1..N (prefer smaller combos)
     for r in range(1, n + 1):
         for combo in itertools.combinations(steel_candidates, r):
             total_increase = sum(c["feasible_increase_tpa"] for c in combo)
             total_energy_req = sum(c["energy_required_mw"] for c in combo)
-            total_shipment_units = sum(c["feasible_increase_tpa"] for c in combo)
+            total_shipment_units = total_increase
             combined_roi = _combined_roi_months(combo)
-
-            # check resource constraints and combined ROI
             if total_increase >= required_increase_tpa and total_energy_req <= energy_headroom_mw and total_shipment_units <= port_headroom_tpa and combined_roi <= max_roi_months:
+                # compute allocation per plant for clarity in UI
+                allocations = _allocate_required(combo, required_increase_tpa)
                 names = ", ".join([c["plant_id"] for c in combo])
                 action_plan = (
-                    f"Combined Action Plan across {names} to achieve +{total_increase} tpa:\n"
-                    "1) Run coordinated pilots at each selected plant to validate process changes and rate scaling.\n"
-                    f"2) Allocate energy dispatch totaling {total_energy_req} MW from available generation.\n"
-                    f"3) Reserve port throughput for {total_shipment_units:,} tpa (approx {total_shipment_units/1_000_000:.2f} Mtpa) and stagger shipments.\n"
-                    "4) Monitor KPIs weekly and scale rollout on success."
+                    f"Combined Action Plan across {names} to achieve +{required_increase_tpa:,} tpa.\n"
+                    "1) Run coordinated pilots at selected plants and validate processes.\n"
+                    f"2) Allocate energy dispatch of {total_energy_req} MW.\n"
+                    f"3) Reserve port throughput of approx {required_increase_tpa:,} tpa and stagger shipments.\n"
+                    "4) Monitor KPIs weekly and scale rollout."
                 )
                 return {
                     "recommended_plant": names,
-                    "expected_increase_tpa": total_increase,
+                    "expected_increase_tpa": required_increase_tpa,
                     "investment_usd": sum(c.get("capex_estimate_usd", 0) for c in combo),
                     "roi_months": combined_roi,
                     "energy_required_mw": total_energy_req,
-                    "summary": "Combined candidate set meets target under combined ROI and resource constraints.",
+                    "summary": "Combined candidate set meets target and combined ROI constraint.",
                     "action_plan": action_plan,
                     "justification": {
                         "energy_headroom_mw": energy_headroom_mw,
                         "port_headroom_tpa": port_headroom_tpa,
-                        "expected_increase_tpa": total_increase,
+                        "expected_increase_tpa": required_increase_tpa,
                         "breaches": [],
                         "mitigations": []
                     },
@@ -70,41 +110,48 @@ def orchestrate_across_ems(steel_candidates: List[Dict[str, Any]],
                         "steel_em": [c.get("explainability", {}) for c in combo],
                         "ports_em": ports_info.get("explainability", {}),
                         "energy_em": energy_info.get("explainability", {})
-                    }
+                    },
+                    "allocations": allocations,
+                    "why_chosen": [
+                        "Selected plants collectively deliver the required uplift.",
+                        "Combined ROI meets the recovery constraint.",
+                        "Energy and port headroom are sufficient for the plan."
+                    ]
                 }
 
-    # No perfect combination found: attempt greedy combination allowing combos where combined ROI <= max even if some individuals exceed max
-    # Greedy by feasible_increase desc but evaluate combined ROI at each addition
+    # If no perfect combo found, attempt greedy selection allowing combined ROI <= max
     sorted_candidates = sorted(steel_candidates, key=lambda x: -x["feasible_increase_tpa"])
     selected = []
     total_inc = 0
     total_energy = 0
     total_shipments = 0
     for c in sorted_candidates:
+        # tentatively add and compute combined ROI
         selected.append(c)
         total_inc += c["feasible_increase_tpa"]
         total_energy += c["energy_required_mw"]
         total_shipments += c["feasible_increase_tpa"]
         combined_roi = _combined_roi_months(selected)
         if total_inc >= required_increase_tpa and total_energy <= energy_headroom_mw and total_shipments <= port_headroom_tpa and combined_roi <= max_roi_months:
+            allocations = _allocate_required(selected, required_increase_tpa)
             names = ", ".join([s["plant_id"] for s in selected])
             action_plan = (
-                f"Greedy combined Action Plan across {names} to achieve +{total_inc} tpa:\n"
+                f"Greedy combined Action Plan across {names} to achieve +{required_increase_tpa:,} tpa.\n"
                 f"Combined ROI estimated: {combined_roi} months.\n"
                 "Coordinate energy and port reservations accordingly and run pilots."
             )
             return {
                 "recommended_plant": names,
-                "expected_increase_tpa": total_inc,
+                "expected_increase_tpa": required_increase_tpa,
                 "investment_usd": sum(s.get("capex_estimate_usd", 0) for s in selected),
                 "roi_months": combined_roi,
                 "energy_required_mw": total_energy,
-                "summary": "Greedy combined candidate meets target and combined ROI constraint.",
+                "summary": "Greedy combined candidate meets target under combined ROI constraint.",
                 "action_plan": action_plan,
                 "justification": {
                     "energy_headroom_mw": energy_headroom_mw,
                     "port_headroom_tpa": port_headroom_tpa,
-                    "expected_increase_tpa": total_inc,
+                    "expected_increase_tpa": required_increase_tpa,
                     "breaches": [],
                     "mitigations": []
                 },
@@ -112,34 +159,31 @@ def orchestrate_across_ems(steel_candidates: List[Dict[str, Any]],
                     "steel_em": [s.get("explainability", {}) for s in selected],
                     "ports_em": ports_info.get("explainability", {}),
                     "energy_em": energy_info.get("explainability", {})
-                }
+                },
+                "allocations": allocations,
+                "why_chosen": [
+                    "Combined plants were selected to reach the target while meeting combined ROI.",
+                    "Greedy selection prioritized plants with highest feasible uplift."
+                ]
             }
 
-    # Final fallback: best single candidate with clear mitigation recommendations
-    top = steel_candidates[0]
+    # Final fallback: best-effort top plants (report breaches + mitigations)
+    top = sorted_candidates[0]
     breaches = []
+    mitigations = []
     if top["feasible_increase_tpa"] < required_increase_tpa:
         breaches.append("insufficient_single_plant_increase")
-    if top["roi_months"] > max_roi_months:
-        breaches.append("roi_exceeds_limit")
+        mitigations.append("combine multiple plants or extend timeline")
     if top["energy_required_mw"] > energy_headroom_mw:
         breaches.append("energy_shortfall")
+        mitigations.append("phase energy allocation; procure temporary energy")
     if top["feasible_increase_tpa"] > port_headroom_tpa:
         breaches.append("port_shortfall")
-
-    mitigations = []
-    if "energy_shortfall" in breaches:
-        mitigations.append("phase energy allocation; schedule off-peak windows; consider temporary purchase")
-    if "port_shortfall" in breaches:
-        mitigations.append("stagger shipments; use temporary staging; request additional port slots")
-    if "roi_exceeds_limit" in breaches:
-        mitigations.append("consider lower-capex operational options or phased rollout to improve ROI")
-    if "insufficient_single_plant_increase" in breaches:
-        mitigations.append("combine multiple plants (cross-company rollout) or extend timeline beyond immediate target")
+        mitigations.append("stagger shipments; temporary staging")
 
     action_plan = (
-        f"Recommended top candidate (soft): {top['plant_id']} with feasible uplift {top['feasible_increase_tpa']} tpa.\n"
-        f"Mitigations: {', '.join(mitigations) if mitigations else 'none'}. Pilot and re-evaluate."
+        f"Top candidate (soft): {top['plant_id']} yields {top['feasible_increase_tpa']:,} tpa uplift. "
+        f"Mitigations: {', '.join(mitigations)}. Pilot and re-evaluate."
     )
 
     return {
@@ -148,7 +192,7 @@ def orchestrate_across_ems(steel_candidates: List[Dict[str, Any]],
         "investment_usd": top["capex_estimate_usd"],
         "roi_months": top["roi_months"],
         "energy_required_mw": top["energy_required_mw"],
-        "summary": "Top candidate selected but requires mitigations; see action_plan.",
+        "summary": "Best-effort candidate selected; does not meet all constraints.",
         "action_plan": action_plan,
         "justification": {
             "breaches": breaches,
