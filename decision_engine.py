@@ -41,7 +41,11 @@ def _load_mock_data():
 
 def _parse_query(query: str) -> Dict[str, Any]:
     q = query.lower()
-    parsed = {"target_increase_tpa": None, "max_roi_months": None}
+    parsed = {"target_increase_tpa": None, "max_roi_months": None, "distribution_strategy": "selective"}
+    
+    # NEW: Detect "across all" strategy
+    if "across all" in q:
+        parsed["distribution_strategy"] = "across_all"
 
     # target tpa
     m = re.search(r"(\d+(?:\.\d+)?)\s*(mtpa|mta|m tpa|tpa)", q)
@@ -80,6 +84,7 @@ def run_simulation(query: str) -> Dict[str, Any]:
     constraints = _parse_query(query)
     target_tpa = constraints["target_increase_tpa"]
     max_roi = constraints["max_roi_months"]
+    distribution_strategy = constraints["distribution_strategy"]
 
     steel_candidates = evaluate_steel(steel_plants, target_tpa)
     ports_info = evaluate_ports(ports)
@@ -91,7 +96,8 @@ def run_simulation(query: str) -> Dict[str, Any]:
         energy_info=energy_info,
         group_systems=group_systems,
         required_increase_tpa=target_tpa,
-        max_roi_months=max_roi
+        max_roi_months=max_roi,
+        distribution_strategy=distribution_strategy
     )
 
     result["em_summaries"] = {
