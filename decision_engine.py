@@ -13,27 +13,27 @@ def _load_mock_data():
     if os.path.exists(MOCK_PATH):
         with open(MOCK_PATH, "r") as f:
             return json.load(f)
-    # fallback mock data (4 ports, 4 steel plants, 3 power plants)
+    # Realistic mock data representing the three companies
     return {
         "steel_plants": [
-            {"plant_id":"SP1","capacity_tpa":1_300_000,"utilization":0.70,"capex_estimate_usd":700000,"energy_required_mw":1.0},
-            {"plant_id":"SP2","capacity_tpa":1_100_000,"utilization":0.68,"capex_estimate_usd":800000,"energy_required_mw":1.1},
-            {"plant_id":"SP3","capacity_tpa":900_000,"utilization":0.62,"capex_estimate_usd":600000,"energy_required_mw":0.6},
-            {"plant_id":"SP4","capacity_tpa":1_000_000,"utilization":0.75,"capex_estimate_usd":850000,"energy_required_mw":1.2}
+            {"plant_id": "SP1", "capacity_tpa": 1500000, "utilization": 0.75, "capex_estimate_usd": 800000, "energy_required_mw": 1.2},
+            {"plant_id": "SP2", "capacity_tpa": 1200000, "utilization": 0.72, "capex_estimate_usd": 750000, "energy_required_mw": 1.0},
+            {"plant_id": "SP3", "capacity_tpa": 1800000, "utilization": 0.68, "capex_estimate_usd": 950000, "energy_required_mw": 1.5},
+            {"plant_id": "SP4", "capacity_tpa": 1400000, "utilization": 0.70, "capex_estimate_usd": 820000, "energy_required_mw": 1.1}
         ],
         "ports": {
             "ports_list": [
-                {"port_id":"PortA1","annual_capacity_mt":2.0,"current_throughput_mt":1.6},
-                {"port_id":"PortA2","annual_capacity_mt":1.5,"current_throughput_mt":1.0},
-                {"port_id":"PortA3","annual_capacity_mt":1.8,"current_throughput_mt":1.2},
-                {"port_id":"PortA4","annual_capacity_mt":2.5,"current_throughput_mt":2.0}
+                {"port_id": "PortA1", "annual_capacity_mt": 3.0, "current_throughput_mt": 2.0},
+                {"port_id": "PortA2", "annual_capacity_mt": 2.5, "current_throughput_mt": 1.5},
+                {"port_id": "PortA3", "annual_capacity_mt": 2.8, "current_throughput_mt": 1.8},
+                {"port_id": "PortA4", "annual_capacity_mt": 1.7, "current_throughput_mt": 1.2}
             ]
         },
         "energy": {
-            "energy_units_list":[
-                {"plant_id":"PP1","capacity_mw":10,"available_mw":3},
-                {"plant_id":"PP2","capacity_mw":12,"available_mw":5},
-                {"plant_id":"PP3","capacity_mw":8,"available_mw":4}
+            "energy_units_list": [
+                {"plant_id": "PP1", "capacity_mw": 800, "available_mw": 320},
+                {"plant_id": "PP2", "capacity_mw": 700, "available_mw": 280},
+                {"plant_id": "PP3", "capacity_mw": 500, "available_mw": 200}
             ]
         },
         "group_systems": {}
@@ -43,21 +43,20 @@ def _parse_query(query: str) -> Dict[str, Any]:
     q = query.lower()
     parsed = {"target_increase_tpa": None, "max_roi_months": None, "distribution_strategy": "selective"}
     
-    # NEW: Detect "across all" strategy
-    if "across all" in q:
+    # Detect distribution strategy
+    if "across all" in q or "all steel plants" in q:
         parsed["distribution_strategy"] = "across_all"
 
-    # target tpa
-    m = re.search(r"(\d+(?:\.\d+)?)\s*(mtpa|mta|m tpa|tpa)", q)
+    # Parse target increase
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(million|millions|mtpa|m tpa|mt)", q)
     if m:
         num = float(m.group(1))
-        unit = m.group(2)
-        if "mt" in unit:
-            parsed["target_increase_tpa"] = int(num * 1_000_000)
-        else:
-            parsed["target_increase_tpa"] = int(num)
+        parsed["target_increase_tpa"] = int(num * 1_000_000)
+    else:
+        # Default to 2 MTPA if not specified
+        parsed["target_increase_tpa"] = 2_000_000
 
-    # ROI: months or years
+    # Parse ROI period
     m_years = re.search(r"(\d+)\s*years?", q)
     if m_years:
         parsed["max_roi_months"] = int(m_years.group(1)) * 12
@@ -65,31 +64,43 @@ def _parse_query(query: str) -> Dict[str, Any]:
         m_months = re.search(r"(\d+)\s*months?", q)
         if m_months:
             parsed["max_roi_months"] = int(m_months.group(1))
-
-    # defaults
-    if parsed["target_increase_tpa"] is None:
-        parsed["target_increase_tpa"] = 2_000_000
-    if parsed["max_roi_months"] is None:
-        parsed["max_roi_months"] = 36  # 3 years default per user's request
+        else:
+            # Default to 3 years (36 months)
+            parsed["max_roi_months"] = 36
 
     return parsed
 
 def run_simulation(query: str) -> Dict[str, Any]:
+    """
+    Main simulation engine that orchestrates analysis across all Enterprise Managers.
+    
+    Flow:
+    1. Group Manager receives strategic query from CEO
+    2. Retrieves processed data from all Enterprise Managers
+    3. Enterprise Managers have already processed data from their LOCAL Nodes
+    4. Group Manager performs cross-company optimization
+    5. Returns unified strategic recommendation
+    """
+    # Load mock data representing processed data from LOCAL Nodes
     mock = _load_mock_data()
     steel_plants = mock.get("steel_plants", [])
     ports = mock.get("ports", {})
     energy = mock.get("energy", {})
     group_systems = mock.get("group_systems", {})
 
+    # Parse strategic query
     constraints = _parse_query(query)
     target_tpa = constraints["target_increase_tpa"]
     max_roi = constraints["max_roi_months"]
     distribution_strategy = constraints["distribution_strategy"]
 
-    steel_candidates = evaluate_steel(steel_plants, target_tpa)
-    ports_info = evaluate_ports(ports)
-    energy_info = evaluate_energy(energy)
+    # Get analyzed data from Enterprise Managers
+    # Note: In real implementation, these would be API calls to respective EMs
+    steel_candidates = evaluate_steel(steel_plants, target_tpa)  # Steel EM analysis
+    ports_info = evaluate_ports(ports)  # Ports EM analysis  
+    energy_info = evaluate_energy(energy)  # Energy EM analysis
 
+    # Group Manager orchestrates cross-company optimization
     result = orchestrate_across_ems(
         steel_candidates=steel_candidates,
         ports_info=ports_info,
@@ -100,21 +111,26 @@ def run_simulation(query: str) -> Dict[str, Any]:
         distribution_strategy=distribution_strategy
     )
 
+    # Compile comprehensive results from all Enterprise Managers
     result["em_summaries"] = {
         "steel_top_candidates": steel_candidates[:10],
         "steel_units_details": steel_plants,
         "ports_info": {
             "port_headroom_tpa": ports_info.get("port_headroom_tpa"),
-            "current_throughput_mt": sum([p.get("current_throughput_mt", 0) for p in ports.get("ports_list", [])])
+            "current_throughput_mt": sum([p.get("current_throughput_mt", 0) for p in ports.get("ports_list", [])]),
+            "current_throughput_tpa": ports_info.get("current_throughput_tpa")
         },
         "port_units_details": ports.get("ports_list", []),
         "energy_info": {
             "energy_headroom_mw": energy_info.get("energy_headroom_mw"),
-            "energy_available_mw": energy_info.get("energy_available_mw")
+            "energy_available_mw": energy_info.get("energy_available_mw"),
+            "total_capacity_mw": energy_info.get("total_capacity_mw")
         },
         "energy_units_details": energy_info.get("energy_units_list", [])
     }
 
+    # Add query context for traceability
     result["query_constraints"] = constraints
     result["query"] = query
+    
     return result
