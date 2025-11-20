@@ -1,32 +1,26 @@
 # decision_engine.py
-"""
-Top-level simulation runner. Parses query constraints and orchestrates EM evaluations + Group Manager.
-"""
-
 import json
 import os
 import re
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from enterprise_manager import evaluate_steel, evaluate_ports, evaluate_energy
 from group_manager import orchestrate_across_ems
 
-# default mock data path (uploaded by user)
 MOCK_PATH = "/mnt/data/mock_data.json"
 
 def _load_mock_data():
     if os.path.exists(MOCK_PATH):
         with open(MOCK_PATH, "r") as f:
             return json.load(f)
-    # fallback sample data if file missing — reflects 4 ports, 4 steel plants, 3 power plants
+    # fallback mock data (4 ports, 4 steel plants, 3 power plants)
     return {
         "steel_plants": [
-            {"plant_id":"SP1","capacity_tpa":1_200_000,"utilization":0.70,"capex_estimate_usd":700000,"roi_months":7,"energy_required_mw":1.0},
-            {"plant_id":"SP2","capacity_tpa":1_100_000,"utilization":0.68,"capex_estimate_usd":800000,"roi_months":8.5,"energy_required_mw":1.1},
-            {"plant_id":"SP3","capacity_tpa":900_000,"utilization":0.62,"capex_estimate_usd":600000,"roi_months":6,"energy_required_mw":0.6},
-            {"plant_id":"SP4","capacity_tpa":1_000_000,"utilization":0.75,"capex_estimate_usd":850000,"roi_months":10,"energy_required_mw":1.2}
+            {"plant_id":"SP1","capacity_tpa":1_300_000,"utilization":0.70,"capex_estimate_usd":700000,"energy_required_mw":1.0},
+            {"plant_id":"SP2","capacity_tpa":1_100_000,"utilization":0.68,"capex_estimate_usd":800000,"energy_required_mw":1.1},
+            {"plant_id":"SP3","capacity_tpa":900_000,"utilization":0.62,"capex_estimate_usd":600000,"energy_required_mw":0.6},
+            {"plant_id":"SP4","capacity_tpa":1_000_000,"utilization":0.75,"capex_estimate_usd":850000,"energy_required_mw":1.2}
         ],
-        # ports: annual capacity in million tonnes (Mtpa) and current throughput in Mtpa
         "ports": {
             "ports_list": [
                 {"port_id":"PortA1","annual_capacity_mt":2.0,"current_throughput_mt":1.6},
@@ -42,14 +36,15 @@ def _load_mock_data():
                 {"plant_id":"PP3","capacity_mw":8,"available_mw":4}
             ]
         },
-        "group_systems": {"commodity_index":102.5, "treasury_signal":"neutral", "esg_reporting_required":False}
+        "group_systems": {}
     }
 
 def _parse_query(query: str) -> Dict[str, Any]:
     q = query.lower()
     parsed = {"target_increase_tpa": None, "max_roi_months": None}
 
-    m = re.search(r"(\d+(?:\.\d+)?)\s*(mtpa|mta|m tpa|tpa|tpa\.)", q)
+    # target tpa
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(mtpa|mta|m tpa|tpa)", q)
     if m:
         num = float(m.group(1))
         unit = m.group(2)
@@ -58,21 +53,20 @@ def _parse_query(query: str) -> Dict[str, Any]:
         else:
             parsed["target_increase_tpa"] = int(num)
 
-    m2 = re.search(r"less than\s*(\d+)\s*months|<\s*(\d+)\s*months|within\s*(\d+)\s*months", q)
-    if m2:
-        for g in m2.groups():
-            if g:
-                parsed["max_roi_months"] = int(g)
-                break
+    # ROI: months or years
+    m_years = re.search(r"(\d+)\s*years?", q)
+    if m_years:
+        parsed["max_roi_months"] = int(m_years.group(1)) * 12
     else:
-        m3 = re.search(r"(\d+)\s*months", q)
-        if m3:
-            parsed["max_roi_months"] = int(m3.group(1))
+        m_months = re.search(r"(\d+)\s*months?", q)
+        if m_months:
+            parsed["max_roi_months"] = int(m_months.group(1))
 
+    # defaults
     if parsed["target_increase_tpa"] is None:
         parsed["target_increase_tpa"] = 2_000_000
     if parsed["max_roi_months"] is None:
-        parsed["max_roi_months"] = 9
+        parsed["max_roi_months"] = 36  # 3 years default per user's request
 
     return parsed
 
