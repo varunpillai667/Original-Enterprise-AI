@@ -1,21 +1,11 @@
 # decision_engine.py
-"""
-Top-level simulation runner.
-Parses the strategic query, loads mock data (or fallback),
-calls Enterprise Manager evaluators and the Group Manager,
-and assembles a cleaned result dict for the UI.
-"""
-
 import json
 import os
 import re
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from enterprise_manager import evaluate_steel, evaluate_ports, evaluate_energy
 from group_manager import orchestrate_across_ems
-
-# Local uploaded document path (tooling): /mnt/data/Operational Flow.docx
-FILE_URL = "/mnt/data/Operational Flow.docx"
 
 MOCK_PATH = "/mnt/data/mock_data.json"
 
@@ -26,10 +16,10 @@ def _load_mock_data():
     # fallback mock data (4 ports, 4 steel plants, 3 power plants)
     return {
         "steel_plants": [
-            {"plant_id":"SP1","capacity_tpa":1_300_000,"utilization":0.70,"capex_estimate_usd":700000,"energy_required_mw":1.0,"expansion_cost_per_tpa_usd":3000},
-            {"plant_id":"SP2","capacity_tpa":1_100_000,"utilization":0.68,"capex_estimate_usd":800000,"energy_required_mw":1.1,"expansion_cost_per_tpa_usd":3200},
-            {"plant_id":"SP3","capacity_tpa":900_000,"utilization":0.62,"capex_estimate_usd":600000,"energy_required_mw":0.6,"expansion_cost_per_tpa_usd":2800},
-            {"plant_id":"SP4","capacity_tpa":1_000_000,"utilization":0.75,"capex_estimate_usd":850000,"energy_required_mw":1.2,"expansion_cost_per_tpa_usd":3500}
+            {"plant_id":"SP1","capacity_tpa":1_300_000,"utilization":0.70,"capex_estimate_usd":700000,"energy_required_mw":1.0},
+            {"plant_id":"SP2","capacity_tpa":1_100_000,"utilization":0.68,"capex_estimate_usd":800000,"energy_required_mw":1.1},
+            {"plant_id":"SP3","capacity_tpa":900_000,"utilization":0.62,"capex_estimate_usd":600000,"energy_required_mw":0.6},
+            {"plant_id":"SP4","capacity_tpa":1_000_000,"utilization":0.75,"capex_estimate_usd":850000,"energy_required_mw":1.2}
         ],
         "ports": {
             "ports_list": [
@@ -50,16 +40,10 @@ def _load_mock_data():
     }
 
 def _parse_query(query: str) -> Dict[str, Any]:
-    """
-    Extracts:
-      - target_increase_tpa (e.g., '2 MTPA' -> 2_000_000)
-      - max_roi_months (e.g., '3 years' or '36 months')
-    Defaults: target 2,000,000 tpa, max_roi_months = 36 (3 years)
-    """
-    q = (query or "").lower()
+    q = query.lower()
     parsed = {"target_increase_tpa": None, "max_roi_months": None}
 
-    # Target extraction (mtpa / tpa)
+    # target tpa
     m = re.search(r"(\d+(?:\.\d+)?)\s*(mtpa|mta|m tpa|tpa)", q)
     if m:
         num = float(m.group(1))
@@ -69,7 +53,7 @@ def _parse_query(query: str) -> Dict[str, Any]:
         else:
             parsed["target_increase_tpa"] = int(num)
 
-    # ROI extraction: years or months
+    # ROI: months or years
     m_years = re.search(r"(\d+)\s*years?", q)
     if m_years:
         parsed["max_roi_months"] = int(m_years.group(1)) * 12
@@ -82,19 +66,11 @@ def _parse_query(query: str) -> Dict[str, Any]:
     if parsed["target_increase_tpa"] is None:
         parsed["target_increase_tpa"] = 2_000_000
     if parsed["max_roi_months"] is None:
-        parsed["max_roi_months"] = 36  # 3 years
+        parsed["max_roi_months"] = 36  # 3 years default per user's request
 
     return parsed
 
 def run_simulation(query: str) -> Dict[str, Any]:
-    """
-    Full pipeline:
-      - load data
-      - parse query
-      - evaluate EMs
-      - orchestrate across EMs (Group Manager)
-      - build final result for UI
-    """
     mock = _load_mock_data()
     steel_plants = mock.get("steel_plants", [])
     ports = mock.get("ports", {})
@@ -105,12 +81,10 @@ def run_simulation(query: str) -> Dict[str, Any]:
     target_tpa = constraints["target_increase_tpa"]
     max_roi = constraints["max_roi_months"]
 
-    # Evaluate each EM
     steel_candidates = evaluate_steel(steel_plants, target_tpa)
     ports_info = evaluate_ports(ports)
     energy_info = evaluate_energy(energy)
 
-    # Orchestrate and decide
     result = orchestrate_across_ems(
         steel_candidates=steel_candidates,
         ports_info=ports_info,
@@ -120,7 +94,6 @@ def run_simulation(query: str) -> Dict[str, Any]:
         max_roi_months=max_roi
     )
 
-    # Add EM summaries for UI (concise)
     result["em_summaries"] = {
         "steel_top_candidates": steel_candidates[:10],
         "steel_units_details": steel_plants,
@@ -136,10 +109,6 @@ def run_simulation(query: str) -> Dict[str, Any]:
         "energy_units_details": energy_info.get("energy_units_list", [])
     }
 
-    # Include parsed constraints and original query for traceability
     result["query_constraints"] = constraints
     result["query"] = query
-    # include the file path as metadata (tooling)
-    result["doc_reference"] = FILE_URL
-
     return result
