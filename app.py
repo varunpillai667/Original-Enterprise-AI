@@ -1,6 +1,3 @@
-# =========================
-# File: app.py
-# =========================
 import streamlit as st
 import pandas as pd
 import json
@@ -27,7 +24,7 @@ They do minimal processing.
 Each company has an EM:  
 - **Ports EM** (manages all 4 ports)  
 - **Steel EM** (manages all 4 steel plants)  
-- **Energy EM** (manages all 3 power plants)  
+- **Energy EM** (manages all 3 power plants**)  
 
 EMs collect data both from LOCAL nodes and from their **company-level IT systems** (ERP, MES, SCADA, planning systems).  
 They make company-level decisions and send consolidated information upward.
@@ -125,14 +122,14 @@ if st.button("Run Simulation"):
 
     st.markdown("---")
 
-    # Roadmap — placed BELOW Recommendation (clean columns)
+    # Roadmap — clean horizontal layout below Recommendation
     st.header("Roadmap (Phases)")
     phases = roadmap.get("phases", [])
     if phases:
         cols = st.columns(len(phases))
         for col, ph in zip(cols, phases):
             html = f"""
-            <div style="padding:14px; min-width:200px; box-sizing:border-box; border-radius:6px;">
+            <div style="padding:14px; min-width:200px; box-sizing:border-box;">
                 <div style="font-weight:700; font-size:15px; margin-bottom:6px; white-space:nowrap;">
                     {ph.get('phase','')}
                 </div>
@@ -150,7 +147,6 @@ if st.button("Run Simulation"):
 
     st.markdown("---")
 
-    # Per-Plant Schedule
     st.subheader("Per-Plant Schedule")
     p_sched = roadmap.get("per_plant_schedule", [])
     if p_sched:
@@ -160,7 +156,6 @@ if st.button("Run Simulation"):
 
     st.markdown("---")
 
-    # Decision Rationale & Financials (side-by-side)
     st.header("Decision Rationale & Financials")
     col_rat, col_fin = st.columns([2, 1])
 
@@ -188,7 +183,6 @@ if st.button("Run Simulation"):
 
     st.markdown("---")
 
-    # Infrastructure Analysis (Ports & Energy) side-by-side
     st.header("Infrastructure Analysis")
     infra = pretty_infra(result.get("infrastructure_analysis", {}))
     ports = infra.get("ports", {})
@@ -238,58 +232,3 @@ if st.button("Run Simulation"):
             st.write("No energy data.")
 
     st.markdown("---")
-
-    # Full result expander
-    with st.expander("Full result (raw) — human readable"):
-        st.markdown("### Recommendation")
-        st.write(f"**{rec.get('headline','')}**")
-        st.write(rec.get("summary",""))
-        st.markdown("### Metrics")
-        for k, v in rec.get("metrics", {}).items():
-            st.write(f"- **{k.replace('_',' ').title()}:** {v}")
-        st.markdown("---")
-        st.markdown("### Roadmap (Phases)")
-        phases = roadmap.get("phases", [])
-        if phases:
-            cols_ph = st.columns(len(phases))
-            for col, ph in zip(cols_ph, phases):
-                html = f"""
-                <div style="padding:12px; min-width:180px; box-sizing:border-box;">
-                    <div style="font-weight:700; font-size:15px; margin-bottom:6px; white-space:nowrap;">{ph.get('phase','')}</div>
-                    <div style="margin-bottom:6px;"><strong>Duration:</strong> {ph.get('months','—')} months</div>
-                    <div style="font-size:13px; color:#444;">{ph.get('notes','')}</div>
-                </div>
-                """
-                col.markdown(html, unsafe_allow_html=True)
-        else:
-            st.write("No roadmap phases available.")
-
-        st.markdown("### Per-Plant Schedule")
-        sched = roadmap.get("per_plant_schedule", [])
-        if sched:
-            st.table(pd.DataFrame(sched))
-        else:
-            st.write("Schedule unavailable.")
-
-        st.markdown("---")
-        st.markdown("### Decision Rationale")
-        for b in result.get("rationale", {}).get("bullets", []):
-            st.write(f"- {b}")
-
-        st.markdown("---")
-        st.markdown("### Infrastructure Summary (Ports | Energy)")
-        cols_ir = st.columns(2)
-        with cols_ir[0]:
-            st.markdown("#### Ports")
-            if ports:
-                for k, v in ports.items():
-                    st.write(f"- **{k.replace('_',' ').title()}:** {v}")
-            else:
-                st.write("No port data.")
-        with cols_ir[1]:
-            st.markdown("#### Energy")
-            if energy:
-                for k, v in energy.items():
-                    st.write(f"- **{k.replace('_',' ').title()}:** {v}")
-            else:
-                st.write("No energy data.")
