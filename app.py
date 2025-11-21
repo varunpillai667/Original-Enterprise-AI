@@ -152,13 +152,47 @@ if st.button("Run Simulation"):
         if note:
             st.write(f"• {note}")
 
-    # PER-PLANT SCHEDULE (RESTORED)
+    # ------------------ PER-PLANT SCHEDULE (FIXED) ------------------
     st.subheader("Per-Plant Schedule")
-    plant_sched = roadmap.get("per_plant_schedule", [])
-    if plant_sched:
-        st.table(pd.DataFrame(plant_sched))
+    # Try to find an explicit per_plant_schedule in roadmap
+    per_plant_schedule = roadmap.get("per_plant_schedule")
+    if per_plant_schedule and isinstance(per_plant_schedule, list) and len(per_plant_schedule) > 0:
+        st.table(pd.DataFrame(per_plant_schedule))
     else:
-        st.write("Schedule unavailable.")
+        # Derive schedule if missing: use em_summaries plant_distribution and implementation_timeline
+        plant_dist = (result.get("em_summaries", {}) .get("steel_info", {}) .get("plant_distribution", []))
+        impl_timeline = result.get("implementation_timeline") or result.get("implementation", {}) or {}
+        # Fallback sensible defaults
+        procurement_months_total = int(impl_timeline.get("procurement_months", impl_timeline.get("procurement", 2) or 2))
+        implementation_months_total = int(impl_timeline.get("implementation_months", impl_timeline.get("implementation", 6) or 6))
+        commissioning_months_total = int(impl_timeline.get("commissioning_months", impl_timeline.get("commissioning", 2) or 2))
+
+        if plant_dist:
+            # sort by added_tpa descending so largest plants go first
+            sorted_plants = sorted(plant_dist, key=lambda x: x.get("added_tpa", 0), reverse=True)
+            derived = []
+            offset = 0
+            total_added = sum(p.get("added_tpa", 0) for p in sorted_plants) or 1
+            for p in sorted_plants:
+                share = p.get("added_tpa", 0) / total_added if total_added else 1/len(sorted_plants)
+                proc_months = max(1, int(round(procurement_months_total * share)))
+                impl_months = max(1, int(round(implementation_months_total * share)))
+                comm_months = max(1, int(round(commissioning_months_total * share)))
+                start_month = offset + 1
+                online_month = start_month + proc_months + impl_months + comm_months
+                derived.append({
+                    "plant": p.get("name", p.get("id", "")),
+                    "start_month_planning": start_month,
+                    "procurement_window_months": proc_months,
+                    "implementation_window_months": impl_months,
+                    "commissioning_window_months": comm_months,
+                    "expected_online_month": online_month
+                })
+                # stagger next plant to avoid concurrency
+                offset += max(1, int(round(impl_months * 0.5)))
+            st.table(pd.DataFrame(derived))
+        else:
+            st.write("Schedule unavailable.")
 
     st.markdown("---")
 
