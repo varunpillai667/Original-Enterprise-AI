@@ -1,4 +1,6 @@
-# app.py
+# ------------------------------
+# File: app.py
+# ------------------------------
 import streamlit as st
 import pandas as pd
 import json
@@ -136,33 +138,23 @@ if st.button("Run Simulation"):
         st.subheader("Roadmap (Phases)")
         phases = roadmap.get("phases", [])
         if phases:
-            # --- Fixed, clean column rendering to avoid wrapping/overlap ---
+            # --- Correct per-column HTML rendering to avoid escaping/wrapping ---
             cols = st.columns(len(phases))
             for col, ph in zip(cols, phases):
-                with col:
-                    st.markdown(
-                        f"""
-                        <div style="
-                            padding: 10px 6px;
-                            min-width: 180px;
-                            box-sizing: border-box;
-                            line-height: 1.3;
-                        ">
-                            <div style="font-weight:700; font-size:16px; margin-bottom:6px; white-space:nowrap;">
-                                {ph.get('phase','')}
-                            </div>
-
-                            <div style="margin-bottom:6px;">
-                                <strong>Duration:</strong> {ph.get('months','—')} months
-                            </div>
-
-                            <div style="font-size:13px; color:#444; margin-top:4px; white-space:normal;">
-                                {ph.get('notes','')}
-                            </div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
+                html = f"""
+                <div style="padding:12px; min-width:180px; white-space:normal; line-height:1.4; box-sizing:border-box;">
+                    <div style="font-weight:700; font-size:16px; margin-bottom:6px; white-space:nowrap;">
+                        {ph.get('phase','')}
+                    </div>
+                    <div style="margin-bottom:6px;">
+                        <strong>Duration:</strong> {ph.get('months','—')} months
+                    </div>
+                    <div style="font-size:13px; color:#444;">
+                        {ph.get('notes','')}
+                    </div>
+                </div>
+                """
+                col.markdown(html, unsafe_allow_html=True)
         else:
             st.write("No roadmap phases available.")
 
@@ -289,30 +281,20 @@ if st.button("Run Simulation"):
         if phases:
             cols_ph = st.columns(len(phases))
             for col, ph in zip(cols_ph, phases):
-                with col:
-                    st.markdown(
-                        f"""
-                        <div style="
-                            padding: 10px 6px;
-                            min-width: 180px;
-                            box-sizing: border-box;
-                            line-height: 1.3;
-                        ">
-                            <div style="font-weight:700; font-size:16px; margin-bottom:6px; white-space:nowrap;">
-                                {ph.get('phase','')}
-                            </div>
-
-                            <div style="margin-bottom:6px;">
-                                <strong>Duration:</strong> {ph.get('months','—')} months
-                            </div>
-
-                            <div style="font-size:13px; color:#444; margin-top:4px; white-space:normal;">
-                                {ph.get('notes','')}
-                            </div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
+                html = f"""
+                <div style="padding:12px; min-width:180px; white-space:normal; line-height:1.4; box-sizing:border-box;">
+                    <div style="font-weight:700; font-size:16px; margin-bottom:6px; white-space:nowrap;">
+                        {ph.get('phase','')}
+                    </div>
+                    <div style="margin-bottom:6px;">
+                        <strong>Duration:</strong> {ph.get('months','—')} months
+                    </div>
+                    <div style="font-size:13px; color:#444;">
+                        {ph.get('notes','')}
+                    </div>
+                </div>
+                """
+                col.markdown(html, unsafe_allow_html=True)
         else:
             st.write("No roadmap phases available.")
 
