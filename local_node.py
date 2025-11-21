@@ -1,123 +1,62 @@
+# local_node.py
 """
-local_node.py
+Local Node simulation helpers (mock).
 
-LOCAL Node: Simulates data ingestion from operational systems at each site.
-Each port, steel plant, and power plant has LOCAL Nodes that collect real-time data
-and transmit to their respective Enterprise Managers.
+Provides:
+- ingest_local_site(site_id: str) -> Dict[str, Any]
+- transmit_to_enterprise_manager(payload: dict, enterprise_manager: str) -> bool
+
+These are simple stubs to illustrate local node behaviour.
 """
-import json
-from datetime import datetime
+
 from typing import Dict, Any
+import random
 
-DATA_PATH = "mock_data.json"
 
-def ingest_local_site(site_id: str = "Steel_Plant_SP1", path: str = DATA_PATH) -> Dict[str, Any]:
-    """
-    LOCAL Node function that collects operational data from site systems.
-    
-    In production, this would connect to:
-    - Steel Plants: MES, SCADA, quality systems
-    - Ports: TOS, VTMS, IoT sensors  
-    - Power Plants: SCADA, DCS, fuel management systems
-    
-    Returns structured payload for Enterprise Manager processing.
-    """
-    with open(path, "r") as f:
-        raw = json.load(f)
-
-    now = datetime.utcnow().isoformat() + "Z"
-
-    # Simulate different payloads based on site type
-    if "Steel" in site_id or "SP" in site_id:
-        ot_payload = {
+def ingest_local_site(site_id: str) -> Dict[str, Any]:
+    """Return a sample site payload. In real deployments this would read sensors/OT data."""
+    # simple mock data
+    if site_id.lower().startswith("port"):
+        return {
             "site_id": site_id,
-            "timestamp": now,
-            "data_source": "Steel Plant LOCAL Node",
-            "systems": {
-                "MES": {"production_rates": "real-time", "downtime_logs": "current"},
-                "SCADA": {"equipment_monitoring": "active", "process_control": "online"},
-                "Quality_System": {"inspection_data": "updated"}
-            },
-            "operational_data": {
-                "current_throughput_tph": 185,
-                "energy_consumption_mw": 45.6,
-                "raw_material_inventory": 12000,
-                "equipment_availability": 0.94
-            }
+            "type": "port",
+            "throughput_tpa": random.randint(200_000, 2_000_000),
+            "status": "ok",
         }
-    elif "Port" in site_id:
-        ot_payload = {
+    if site_id.lower().startswith("steel"):
+        return {
             "site_id": site_id,
-            "timestamp": now,
-            "data_source": "Port LOCAL Node",
-            "systems": {
-                "TOS": {"berth_planning": "active", "yard_management": "online"},
-                "VTMS": {"vessel_tracking": "real-time", "navigation_safety": "monitored"},
-                "IoT_Sensors": {"crane_operations": "tracked", "gate_control": "automated"}
-            },
-            "operational_data": {
-                "vessels_at_berth": 3,
-                "crane_utilization": 0.78,
-                "gate_throughput_trucks_hour": 45,
-                "yard_occupancy_percent": 65
-            }
+            "type": "steel",
+            "current_capacity_tpa": random.randint(400_000, 1_300_000),
+            "utilization_pct": round(random.uniform(0.6, 0.95), 2),
+            "status": "ok",
         }
-    elif "Power" in site_id or "PP" in site_id:
-        ot_payload = {
+    if site_id.lower().startswith("power"):
+        return {
             "site_id": site_id,
-            "timestamp": now,
-            "data_source": "Power Plant LOCAL Node",
-            "systems": {
-                "SCADA": {"turbine_control": "automated", "boiler_monitoring": "real-time"},
-                "DCS": {"generation_control": "optimized", "safety_systems": "active"},
-                "Fuel_Management": {"consumption_tracking": "live"}
-            },
-            "operational_data": {
-                "current_generation_mw": 320,
-                "plant_efficiency": 0.89,
-                "fuel_consumption_rate": 45.2,
-                "emissions_level": "within_limits"
-            }
+            "type": "power",
+            "available_mw": random.randint(100, 600),
+            "status": "ok",
         }
-    else:
-        ot_payload = {
-            "site_id": site_id,
-            "timestamp": now,
-            "data_source": "Generic LOCAL Node",
-            "systems": {"SCADA": {"note": "telemetry_sample"}},
-            "operational_data": {"status": "operational"}
-        }
+    return {"site_id": site_id, "type": "unknown", "status": "ok"}
 
-    return ot_payload
 
-def transmit_to_enterprise_manager(site_data: Dict[str, Any], enterprise_manager: str) -> bool:
+def transmit_to_enterprise_manager(payload: Dict[str, Any], enterprise_manager: str) -> bool:
     """
-    Simulates secure transmission of LOCAL Node data to the appropriate Enterprise Manager.
-    
-    In production, this would use:
-    - TLS 1.3 encryption
-    - Token-based authentication
-    - Message queuing for resilience
-    - Compression for efficiency
+    Mock transmit: validate payload and pretend to send to EM.
+    Returns True on success.
     """
-    print(f"LOCAL Node {site_data['site_id']} transmitting to {enterprise_manager}...")
-    
-    # Simulate transmission logic
-    if enterprise_manager in ["Steel_EM", "Ports_EM", "Energy_EM"]:
-        print(f"✓ Successfully transmitted data to {enterprise_manager}")
-        return True
-    else:
-        print(f"✗ Transmission failed: Invalid Enterprise Manager {enterprise_manager}")
+    if not isinstance(payload, dict) or not enterprise_manager:
         return False
+    # basic validation
+    if "site_id" not in payload:
+        return False
+    # in real system would perform encryption, buffering, retries
+    return True
 
-# Example usage
+
+# Quick demo if run directly
 if __name__ == "__main__":
-    # Simulate LOCAL Node operation
-    steel_data = ingest_local_site("Steel_Plant_SP1")
-    transmit_to_enterprise_manager(steel_data, "Steel_EM")
-    
-    port_data = ingest_local_site("Port_A1")
-    transmit_to_enterprise_manager(port_data, "Ports_EM")
-    
-    power_data = ingest_local_site("Power_Plant_PP1")
-    transmit_to_enterprise_manager(power_data, "Energy_EM")
+    print(ingest_local_site("Steel_SP1"))
+    print(ingest_local_site("Port_P1"))
+    print(transmit_to_enterprise_manager({"site_id": "Steel_SP1"}, "Steel_EM"))
