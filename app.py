@@ -44,6 +44,46 @@ Explain how a multi-layer enterprise system could respond to strategic questions
 st.markdown("---")
 
 # -------------------------
+# CSS: prevent awkward wrapping & align roadmap columns
+# -------------------------
+st.markdown(
+    """
+<style>
+/* Prevent breaking long phase names and keep consistent spacing */
+.phase-col {
+  padding: 8px 12px;
+  min-width: 180px;
+  box-sizing: border-box;
+}
+.phase-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 700;
+  margin-bottom: 6px;
+  font-size: 16px;
+}
+.phase-item {
+  margin: 6px 0;
+  line-height: 1.25;
+  word-break: normal;
+  white-space: normal;
+}
+.phase-notes {
+  color: #444;
+  font-size: 13px;
+  line-height: 1.2;
+}
+.metric-row .stMetricValue, .metric-row .stMetricLabel {
+  /* Slight spacing for metrics rows */
+  padding: 4px 6px;
+}
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+# -------------------------
 # Helpers (display formatting)
 # -------------------------
 def parse_hiring(x: Any) -> Dict[str, int]:
@@ -136,13 +176,21 @@ if st.button("Run Simulation"):
         st.subheader("Roadmap (Phases)")
         phases = roadmap.get("phases", [])
         if phases:
+            # use columns; apply the CSS class for each column content to avoid wrapping issues
             cols_ph = st.columns(len(phases))
             for i, ph in enumerate(phases):
                 with cols_ph[i]:
-                    st.write(f"**{ph.get('phase','Phase')}**")
-                    st.write(f"- Duration: {ph.get('months','—')} months")
-                    if ph.get("notes"):
-                        st.write(f"- {ph.get('notes')}")
+                    # wrap content in a container to apply our CSS classes
+                    phase_html = f"""
+                    <div class="phase-col">
+                      <div class="phase-title">{ph.get('phase','Phase')}</div>
+                      <div class="phase-item"><strong>Duration:</strong> {ph.get('months','—')} months</div>
+                    """
+                    notes = ph.get("notes")
+                    if notes:
+                        phase_html += f'<div class="phase-notes">{notes}</div>'
+                    phase_html += "</div>"
+                    st.markdown(phase_html, unsafe_allow_html=True)
         else:
             st.write("No roadmap phases available.")
 
@@ -184,7 +232,6 @@ if st.button("Run Simulation"):
                 df["capex_usd"] = df["capex_usd"].apply(lambda x: f"${x:,}")
             if "annual_margin_usd" in df.columns:
                 df["annual_margin_usd"] = df["annual_margin_usd"].apply(lambda x: f"${x:,}")
-            # show compact table
             st.table(df[ [c for c in df.columns if c in ["name","current_capacity_tpa","added_mtpa","capex_usd","annual_margin_usd","payback_months"] ] ])
         else:
             st.write("No plant distribution available.")
@@ -271,10 +318,16 @@ if st.button("Run Simulation"):
             cols_ph = st.columns(len(phases))
             for i, ph in enumerate(phases):
                 with cols_ph[i]:
-                    st.write(f"**{ph.get('phase','Phase')}**")
-                    st.write(f"- {ph.get('months','—')} months")
-                    if ph.get("notes"):
-                        st.write(f"- {ph.get('notes')}")
+                    phase_html = f"""
+                    <div class="phase-col">
+                      <div class="phase-title">{ph.get('phase','Phase')}</div>
+                      <div class="phase-item"><strong>Duration:</strong> {ph.get('months','—')} months</div>
+                    """
+                    notes = ph.get("notes")
+                    if notes:
+                        phase_html += f'<div class="phase-notes">{notes}</div>'
+                    phase_html += "</div>"
+                    st.markdown(phase_html, unsafe_allow_html=True)
         else:
             st.write("No roadmap phases available.")
 
