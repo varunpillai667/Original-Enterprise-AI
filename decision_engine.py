@@ -4,18 +4,6 @@ Decision engine (updated for the steel +2 MTPA strategic query)
 
 Produces clear assumptions and a polished, actionable simulation result.
 Reads mock_data.json from the same folder as this file.
-
-Key outputs (all returned in the dict):
-- recommended_plant (string)
-- expected_increase_tpa (int)
-- investment_usd (int)
-- roi_months (float or None)
-- energy_required_mw (float)
-- confidence_pct (int)
-- em_summaries -> steel_info contains per-plant breakdown with capex & payback
-- infrastructure_analysis (list)
-- implementation_timeline
-- notes.assumptions and notes.recommendations
 """
 
 from __future__ import annotations
@@ -34,13 +22,12 @@ except Exception:
     evaluate_energy = None  # type: ignore
 
 # -------------------------
-# Configurable assumptions
-# (Tweak these if you want different financials)
+# Selected realistic assumptions
 # -------------------------
-CAPEX_PER_MTPA_USD = 450_000_000  # USD per 1 MTPA added capacity (conservative mid-range)
-MARGIN_PER_TON_USD = 120  # USD additional gross margin per tonne of incremental output
-MW_PER_MTPA = 2.2  # MW required per 1 MTPA incremental capacity
-DEFAULT_CONFIDENCE_PCT = 75
+CAPEX_PER_MTPA_USD = 420_000_000  # USD per 1 MTPA added capacity
+MARGIN_PER_TON_USD = 120         # USD additional gross margin per tonne
+MW_PER_MTPA = 2.5                # MW required per 1 MTPA
+DEFAULT_CONFIDENCE_PCT = 78
 
 # Path to mock data (next to this file)
 MOCK_PATH = Path(__file__).parent / "mock_data.json"
@@ -53,13 +40,11 @@ def _parse_query_for_constraints(query: str) -> Dict[str, int]:
     q = (query or "").lower()
     result = {"target_mtpa": 2.0, "target_months": 15, "max_payback_months": 36}
 
-    # find MTPA number (e.g., "2 MTPA")
+    # find numeric MTPA (flexible patterns)
     m = re.search(r'(\d+(\.\d+)?)\s*m\s*t\s*p\s*a|\b(\d+(\.\d+)?)\s*mtpa\b', q.replace(" ", ""))
     if not m:
-        # fallback simpler pattern: "<number> mtpa" or "<number> mpta"
         m = re.search(r'(\d+(\.\d+)?)\s*mtpa|\b(\d+(\.\d+)?)\s*m?t?p?a\b', q)
     if m:
-        # pick first numeric group that is not None
         for g in m.groups():
             if g:
                 try:
@@ -68,7 +53,7 @@ def _parse_query_for_constraints(query: str) -> Dict[str, int]:
                 except Exception:
                     pass
 
-    # timeframe in months (e.g., "15 months")
+    # timeframe in months
     m2 = re.search(r'(\d{1,3})\s*(?:months|month)\b', q)
     if m2:
         try:
@@ -76,7 +61,7 @@ def _parse_query_for_constraints(query: str) -> Dict[str, int]:
         except Exception:
             pass
 
-    # payback: "less than 3 years" or "payback < 3 years" or "within 36 months"
+    # payback constraint: years -> months or months
     m3 = re.search(r'payback.*?(?:less than|<|within)\s*(\d+)\s*(years|year)\b', q)
     if m3:
         try:
@@ -125,7 +110,6 @@ def _distribute_target(plants: List[Dict[str, Any]], target_tpa: int) -> List[Di
     """Proportional distribution by current capacity; returns list with added_tpa & new_capacity."""
     total = sum(p.get("current_capacity_tpa", 0) for p in plants)
     if total <= 0:
-        # equal split if no capacity metadata
         n = max(1, len(plants))
         base = target_tpa // n
         distributed = []
@@ -140,7 +124,6 @@ def _distribute_target(plants: List[Dict[str, Any]], target_tpa: int) -> List[Di
         added = int(round(share * target_tpa))
         distributed.append({**p, "added_tpa": max(0, added), "new_capacity_tpa": int(p.get("current_capacity_tpa", 0) + max(0, added))})
 
-    # correct rounding difference
     diff = target_tpa - sum(p["added_tpa"] for p in distributed)
     idx = 0
     while diff != 0 and distributed:
@@ -244,9 +227,8 @@ def run_simulation(query: str) -> Dict[str, Any]:
         aggregated_payback_months = (total_investment / total_annual_margin) * 12.0
 
     # simple timeline model
-    # baseline months = 6 for planning & approvals + implementation proportional to scale
     baseline_planning = 2
-    implementation_months_est = max(1, int(round(4 + total_added_mtpa * 8)))  # e.g., 0.5 MTPA -> ~8 months scaling
+    implementation_months_est = max(1, int(round(4 + total_added_mtpa * 8)))
     stabilization_months = max(1, int(round(implementation_months_est * 0.2)))
     estimated_total_months = baseline_planning + implementation_months_est + stabilization_months
 
@@ -254,7 +236,6 @@ def run_simulation(query: str) -> Dict[str, Any]:
     notes_recommendations: List[str] = []
     confidence = DEFAULT_CONFIDENCE_PCT
 
-    # payback feasibility
     if aggregated_payback_months is None:
         notes_recommendations.append("Unable to compute aggregated payback: zero or negative incremental margin. Review margin assumptions.")
         confidence -= 30
@@ -265,14 +246,12 @@ def run_simulation(query: str) -> Dict[str, Any]:
             notes_recommendations.append(f"Aggregated estimated payback is {aggregated_payback_months:.1f} months — exceeds target ({max_payback_months} months). Consider staging, price improvements, or lower-CAPEX options.")
             confidence -= 25
 
-    # schedule feasibility
     if target_months < estimated_total_months:
         notes_recommendations.append(f"Target timeframe ({target_months} months) is tighter than estimated schedule ({estimated_total_months} months). Consider phased rollout.")
         confidence -= 15
     else:
         notes_recommendations.append(f"Target timeframe ({target_months} months) is feasible based on high-level schedule estimate ({estimated_total_months} months).")
 
-    # infrastructure checks
     infra_analysis = {
         "port_capacity_analysis": [
             f"Estimated additional port throughput required: {total_added_mtpa:.2f} MTPA. Ports EM should validate container/berth constraints."
@@ -282,7 +261,6 @@ def run_simulation(query: str) -> Dict[str, Any]:
         ]
     }
 
-    # choose recommended plant(s): priority to largest added_tpa plants (top 2)
     sorted_by_added = sorted(per_plant_breakdown, key=lambda x: x["added_tpa"], reverse=True)
     top_plants = [f"{p['name']} (+{p['added_tpa']:,} tpa)" for p in sorted_by_added[:2]] if sorted_by_added else []
     recommended_str = ", ".join(top_plants) if top_plants else "—"
