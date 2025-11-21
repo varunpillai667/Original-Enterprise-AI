@@ -6,7 +6,7 @@ from decision_engine import run_simulation
 st.set_page_config(page_title="Original Enterprise AI Concept Prototype", layout="wide")
 st.title("Original Enterprise AI Concept Prototype")
 
-# Full intro / Operating Principles restored
+# Intro
 st.markdown(
     """
 **Group X** has three subsidiaries — **Ports (4 ports)**, **Steel (4 plants)**, and **Energy (3 power plants)**.  
@@ -18,7 +18,7 @@ All simulation results in this prototype are based on **assumed, simplified data
 LOCAL Nodes collect and forward operational data from each site (ports, steel plants, power plants) to their respective Enterprise Manager (EM). LOCAL Nodes do minimal processing.
 
 **Enterprise Managers (EMs) — Company Layer**  
-Each company (Ports, Steel, Energy) has an EM that aggregates local nodes and connects to company-level systems (ERP, MES, SCADA). EMs make company-level decisions and feed summary data to the Group Manager.
+Each company (Ports, Steel, Energy) has an EM that aggregates local nodes and connects to company-level systems. EMs make company-level decisions and feed summary data to the Group Manager.
 
 **Group Manager — Group Layer**  
 The Group Manager aggregates EM outputs and group-level systems to run cross-company simulations and strategic queries. All strategic queries are explainable and auditable.
@@ -29,10 +29,8 @@ The Group Manager aggregates EM outputs and group-level systems to run cross-com
 
 st.markdown("---")
 
-# Strategic Query
+# Strategic Query Input
 st.subheader("Strategic Query")
-st.write("Enter a high-level strategic question. Default example is prefilled.")
-
 query = st.text_area(
     "Enter strategic query here",
     value=(
@@ -44,7 +42,7 @@ query = st.text_area(
     height=140,
 )
 
-# Run button
+# Run Simulation
 if st.button("Run Simulation"):
     if not query.strip():
         st.error("Please enter a strategic query.")
@@ -59,91 +57,83 @@ if st.button("Run Simulation"):
         if not result:
             st.error("Simulation returned no result.")
         else:
-            # ==============================
-            # Recommendation
-            # ==============================
+
+            # --------------------------------------------------
+            # Recommendation Section
+            # --------------------------------------------------
             st.header("Recommendation")
             rec = result.get("recommendation", {})
-            st.subheader(rec.get("headline", "Proposed action"))
+            st.subheader(rec.get("headline", ""))
+
             if rec.get("summary"):
                 st.write(rec["summary"])
 
             metrics = rec.get("metrics", {})
             cols = st.columns(4)
+
             cols[0].metric("Added (MTPA)", metrics.get("added_mtpa", 0))
             cols[1].metric("Investment (USD)", f"${metrics.get('investment_usd',0):,}")
-
-            payback = metrics.get("estimated_payback_months", "—")
-            cols[2].metric("Est. Payback (months)", payback)
-
-            confidence = result.get("confidence_pct", None)
-            cols[3].metric("Confidence", f"{confidence}%" if confidence else "N/A")
+            cols[2].metric("Est. Payback (months)", metrics.get("estimated_payback_months","—"))
+            cols[3].metric("Confidence", f"{result.get('confidence_pct','N/A')}%")
 
             if rec.get("actions"):
-                st.subheader("Key recommended actions")
+                st.subheader("Key Recommended Actions")
                 for a in rec.get("actions", [])[:6]:
                     st.write(f"- {a}")
 
             debug_lines = result.get("notes", {}).get("debug", [])
             if debug_lines:
-                with st.expander("Debug / data-loading notes"):
+                with st.expander("Debug Information"):
                     for d in debug_lines:
                         st.write(f"- {d}")
 
             st.markdown("---")
 
-            # ==============================
-            # Roadmap
-            # ==============================
+            # --------------------------------------------------
+            # Roadmap Section
+            # --------------------------------------------------
             st.header("Roadmap")
             roadmap = result.get("roadmap", {})
             phases = roadmap.get("phases", [])
 
             st.subheader("Phases")
             for ph in phases:
-                st.write(f"- **{ph.get('phase')}** ({ph.get('months','—')} months)")
+                st.write(f"- **{ph.get('phase')}** ({ph.get('months')} months)")
                 acts = ph.get("activities") or ph.get("notes")
                 if isinstance(acts, list):
                     for it in acts:
                         st.write(f"  - {it}")
-                elif acts:
+                else:
                     st.write(f"  - {acts}")
 
-            st.subheader("Per-plant schedule")
-            p_sched = roadmap.get("per_plant_schedule", [])
-            if p_sched:
-                st.table(pd.DataFrame(p_sched))
+            st.subheader("Per-Plant Schedule")
+            if roadmap.get("per_plant_schedule"):
+                st.table(pd.DataFrame(roadmap["per_plant_schedule"]))
 
             st.markdown("---")
 
-            # ==============================
-            # Rationale
-            # ==============================
+            # --------------------------------------------------
+            # Rationale Section (Assumptions + References REMOVED)
+            # --------------------------------------------------
             st.header("Decision Rationale")
 
             rationale = result.get("rationale", {})
             bullets = rationale.get("bullets", [])
 
-            st.subheader("Why these recommendations?")
+            st.subheader("Why These Recommendations?")
             for b in bullets:
                 st.write(f"- {b}")
 
-            # REMOVED: Key assumptions section
-
-            refs = rationale.get("references", {})
-            if refs:
-                st.subheader("Reference documents")
-                st.write(f"- Operational Flow: `{refs.get('operational_flow_doc')}`")
-                st.write(f"- Concept PDF: `{refs.get('concept_pdf')}`")
+            # ⛔ Removed: Key Assumptions  
+            # ⛔ Removed: Reference Documents
 
             st.markdown("---")
 
-            # ==============================
-            # Per-plant financials
-            # ==============================
-            st.subheader("Per-Plant Financials (detailed)")
-            steel_info = result.get("em_summaries", {}).get("steel_info", {})
-            plant_dist = steel_info.get("plant_distribution", [])
+            # --------------------------------------------------
+            # Per-Plant Financials
+            # --------------------------------------------------
+            st.subheader("Per-Plant Financials")
+            plant_dist = result.get("em_summaries", {}).get("steel_info", {}).get("plant_distribution", [])
 
             if plant_dist:
                 df = pd.DataFrame(plant_dist)
@@ -155,12 +145,16 @@ if st.button("Run Simulation"):
 
             st.markdown("---")
 
-            # Infrastructure analysis
-            st.subheader("Infrastructure analysis (ports & energy)")
+            # --------------------------------------------------
+            # Infrastructure Analysis
+            # --------------------------------------------------
+            st.subheader("Infrastructure Analysis (Ports & Energy)")
             st.json(result.get("infrastructure_analysis", {}))
 
             st.markdown("---")
 
-            # Raw result
+            # --------------------------------------------------
+            # Raw JSON Output
+            # --------------------------------------------------
             with st.expander("Full result (raw)"):
                 st.json(result)
