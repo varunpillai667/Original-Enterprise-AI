@@ -166,7 +166,11 @@ if run_button:
             notes = result.get("notes", {})
             assumptions = notes.get("assumptions", {})
             st.write("**Assumptions**")
-            st.write(f"- CAPEX per 1 MTPA: ${assumptions.get('capex_per_mtpa_usd', '—'):,}")
+            capex_ass = assumptions.get('capex_per_mtpa_usd')
+            if capex_ass is not None:
+                st.write(f"- CAPEX per 1 MTPA: ${capex_ass:,}")
+            else:
+                st.write(f"- CAPEX per 1 MTPA: —")
             st.write(f"- Margin per tonne: ${assumptions.get('margin_per_ton_usd', '—')}")
             st.write(f"- Energy per 1 MTPA: {assumptions.get('mw_per_mtpa', '—')} MW")
 
