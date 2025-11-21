@@ -59,7 +59,9 @@ if st.button("Run Simulation"):
         if not result:
             st.error("Simulation returned no result.")
         else:
+            # ==============================
             # Recommendation
+            # ==============================
             st.header("Recommendation")
             rec = result.get("recommendation", {})
             st.subheader(rec.get("headline", "Proposed action"))
@@ -68,26 +70,20 @@ if st.button("Run Simulation"):
 
             metrics = rec.get("metrics", {})
             cols = st.columns(4)
-            # Added
-            added_mtpa = metrics.get("added_mtpa", result.get("expected_increase_tpa", 0)/1_000_000 if result.get("expected_increase_tpa") else 0)
-            cols[0].metric("Added (MTPA)", f"{added_mtpa}")
-            # Investment
-            invest = metrics.get("investment_usd", result.get("investment_usd", 0))
-            cols[1].metric("Investment (USD)", f"${invest:,}")
-            # Payback
-            payback = metrics.get("estimated_payback_months", result.get("roi_months"))
-            cols[2].metric("Est. Payback (months)", payback if payback is not None else "—")
-            # Confidence (top-level)
-            confidence = result.get("confidence_pct", None)
-            cols[3].metric("Confidence", f"{confidence}%" if confidence is not None else "N/A")
+            cols[0].metric("Added (MTPA)", metrics.get("added_mtpa", 0))
+            cols[1].metric("Investment (USD)", f"${metrics.get('investment_usd',0):,}")
 
-            # Show key recommended actions summary
+            payback = metrics.get("estimated_payback_months", "—")
+            cols[2].metric("Est. Payback (months)", payback)
+
+            confidence = result.get("confidence_pct", None)
+            cols[3].metric("Confidence", f"{confidence}%" if confidence else "N/A")
+
             if rec.get("actions"):
-                st.subheader("Key recommended actions (summary)")
+                st.subheader("Key recommended actions")
                 for a in rec.get("actions", [])[:6]:
                     st.write(f"- {a}")
 
-            # Debug lines (data-loading)
             debug_lines = result.get("notes", {}).get("debug", [])
             if debug_lines:
                 with st.expander("Debug / data-loading notes"):
@@ -96,10 +92,13 @@ if st.button("Run Simulation"):
 
             st.markdown("---")
 
+            # ==============================
             # Roadmap
+            # ==============================
             st.header("Roadmap")
             roadmap = result.get("roadmap", {})
             phases = roadmap.get("phases", [])
+
             st.subheader("Phases")
             for ph in phases:
                 st.write(f"- **{ph.get('phase')}** ({ph.get('months','—')} months)")
@@ -113,59 +112,55 @@ if st.button("Run Simulation"):
             st.subheader("Per-plant schedule")
             p_sched = roadmap.get("per_plant_schedule", [])
             if p_sched:
-                df_sched = pd.DataFrame(p_sched)
-                st.table(df_sched)
-            else:
-                st.write("Per-plant schedule not available.")
+                st.table(pd.DataFrame(p_sched))
 
             st.markdown("---")
 
+            # ==============================
             # Rationale
+            # ==============================
             st.header("Decision Rationale")
+
             rationale = result.get("rationale", {})
             bullets = rationale.get("bullets", [])
+
             st.subheader("Why these recommendations?")
             for b in bullets:
                 st.write(f"- {b}")
 
-            st.subheader("Key assumptions")
-            assumptions = rationale.get("assumptions", {})
-            st.write(f"- CAPEX per 1 MTPA: ${assumptions.get('capex_per_mtpa_usd', CAPEX_PER_MTPA_USD):,}")
-            st.write(f"- Margin per tonne: ${assumptions.get('margin_per_ton_usd', MARGIN_PER_TON_USD)}")
-            st.write(f"- Energy per 1 MTPA: {assumptions.get('mw_per_mtpa', MW_PER_MTPA)} MW")
+            # REMOVED: Key assumptions section
 
             refs = rationale.get("references", {})
             if refs:
                 st.subheader("Reference documents")
-                st.write(f"- Operational Flow: `{refs.get('operational_flow_doc', OPERATIONAL_FLOW_DOC)}`")
-                st.write(f"- Concept PDF: `{refs.get('concept_pdf', CONCEPT_PDF)}`")
+                st.write(f"- Operational Flow: `{refs.get('operational_flow_doc')}`")
+                st.write(f"- Concept PDF: `{refs.get('concept_pdf')}`")
 
             st.markdown("---")
 
+            # ==============================
             # Per-plant financials
+            # ==============================
             st.subheader("Per-Plant Financials (detailed)")
             steel_info = result.get("em_summaries", {}).get("steel_info", {})
             plant_dist = steel_info.get("plant_distribution", [])
+
             if plant_dist:
                 df = pd.DataFrame(plant_dist)
-                # format currency columns if present
                 if "capex_usd" in df.columns:
                     df["capex_usd"] = df["capex_usd"].apply(lambda x: f"${x:,}")
                 if "annual_margin_usd" in df.columns:
                     df["annual_margin_usd"] = df["annual_margin_usd"].apply(lambda x: f"${x:,}")
                 st.table(df)
-            else:
-                st.write("No per-plant breakdown available.")
 
             st.markdown("---")
 
-            # Infrastructure analysis (ports & energy)
+            # Infrastructure analysis
             st.subheader("Infrastructure analysis (ports & energy)")
-            infra = result.get("infrastructure_analysis", {})
-            st.json(infra)
+            st.json(result.get("infrastructure_analysis", {}))
 
             st.markdown("---")
 
-            # Full raw result
+            # Raw result
             with st.expander("Full result (raw)"):
                 st.json(result)
