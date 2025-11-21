@@ -51,6 +51,9 @@ query = st.text_area(
     height=120,
 )
 
+# ------------------------
+# Run Simulation
+# ------------------------
 if st.button("Run Simulation"):
     if not query.strip():
         st.error("Please enter a strategic query.")
@@ -61,6 +64,7 @@ if st.button("Run Simulation"):
         if not result:
             st.error("Simulation did not return any result.")
         else:
+
             # --------------------------
             # Section 1: Recommendation
             # --------------------------
@@ -126,9 +130,19 @@ if st.button("Run Simulation"):
             st.markdown("---")
 
             # --------------------------
-            # Per-plant table
+            # Per-plant Financial Table
             # --------------------------
             st.subheader("Per-Plant Financials")
 
             dist = result["em_summaries"]["steel_info"]["plant_distribution"]
-            df = pd.DataFrame(di
+            df = pd.DataFrame(dist)
+
+            df["capex_usd"] = df["capex_usd"].apply(lambda x: f"${x:,}")
+            df["annual_margin_usd"] = df["annual_margin_usd"].apply(lambda x: f"${x:,}")
+
+            st.table(df)
+
+            st.markdown("---")
+
+            with st.expander("Full result (raw)"):
+                st.json(result)
