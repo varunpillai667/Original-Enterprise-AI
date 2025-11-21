@@ -63,7 +63,6 @@ def nice_number(v: Any):
     if isinstance(v, int):
         return f"{v:,}"
     if isinstance(v, float):
-        # keep two decimals for floats
         return round(v, 2)
     return v
 
@@ -77,7 +76,6 @@ def pretty_infra(data: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(vals, dict):
             out[section] = {}
             for k, v in vals.items():
-                # if nested dict (older variants), format inner values too
                 if isinstance(v, dict):
                     out[section][k] = {kk: nice_number(vv) for kk, vv in v.items()}
                 else:
@@ -158,7 +156,9 @@ if st.button("Run Simulation"):
     # Phase timeline
     st.subheader("Phases")
     for phase in roadmap.get("phases", []):
-        st.write(f"**{phase['phase']}** — {phase['months']} months")
+        # some phases may not include 'months' or 'notes' depending on engine variant
+        months = phase.get("months", phase.get("duration_months", "—"))
+        st.write(f"**{phase.get('phase','Phase')}** — {months} months")
         note = phase.get("notes")
         if note:
             st.write(f"• {note}")
@@ -258,13 +258,11 @@ if st.button("Run Simulation"):
     ports = infra.get("ports", {})
     if ports:
         st.markdown("### Ports")
-        # order keys for nicer presentation if present
         preferred_order = ["total_port_capacity_tpa", "used_port_tpa", "group_port_share_tpa", "spare_port_tpa", "available_port_for_steel_tpa", "port_throughput_required_tpa"]
         for key in preferred_order:
             if key in ports:
                 label = key.replace("_", " ").title()
                 st.write(f"- **{label}:** {ports[key]}")
-        # write remaining keys if any
         for k, v in ports.items():
             if k not in preferred_order:
                 label = k.replace("_", " ").title()
@@ -287,7 +285,86 @@ if st.button("Run Simulation"):
     st.markdown("---")
 
     # ---------------------------------------------------------
-    # Raw JSON
+    # Human-Readable Full Result (NO JSON)
     # ---------------------------------------------------------
     with st.expander("Full result (raw)"):
-        st.json(result)
+
+        st.markdown("## Recommendation")
+        rec = result.get("recommendation", {})
+        st.write(f"**Headline:** {rec.get('headline', '')}")
+        st.write(f"**Summary:** {rec.get('summary', '')}")
+
+        st.markdown("### Metrics")
+        metrics = rec.get("metrics", {})
+        for k, v in metrics.items():
+            label = k.replace("_", " ").title()
+            st.write(f"- **{label}:** {v}")
+
+        st.markdown("### Actions")
+        for a in rec.get("actions", []):
+            st.write(f"- {a}")
+
+        st.markdown("---")
+        st.markdown("## Roadmap")
+
+        roadmap = result.get("roadmap", {})
+        st.markdown("### Phases")
+        for ph in roadmap.get("phases", []):
+            months = ph.get("months", ph.get("duration_months", "—"))
+            note = ph.get("notes", "")
+            st.write(f"- **{ph.get('phase','Phase')}** ({months} months): {note}")
+
+        st.markdown("### Per-Plant Schedule")
+        sched = roadmap.get("per_plant_schedule", [])
+        if sched:
+            st.table(pd.DataFrame(sched))
+        else:
+            # attempt derived schedule for raw view if not present
+            plant_dist = (result.get("em_summaries", {}).get("steel_info", {}).get("plant_distribution", []))
+            if plant_dist:
+                # simple derived schedule, same logic as above but simpler
+                derived = []
+                total_added = sum(p.get("added_tpa", 0) for p in plant_dist) or 1
+                offset = 0
+                procurement_total = result.get("implementation_timeline", {}).get("procurement_months", 2)
+                implementation_total = result.get("implementation_timeline", {}).get("implementation_months", 6)
+                commissioning_total = result.get("implementation_timeline", {}).get("commissioning_months", 2)
+                for p in sorted(plant_dist, key=lambda x: x.get("added_tpa",0), reverse=True):
+                    share = p.get("added_tpa",0)/total_added
+                    proc = max(1,int(round(procurement_total*share)))
+                    impl = max(1,int(round(implementation_total*share)))
+                    comm = max(1,int(round(commissioning_total*share)))
+                    start = offset + 1
+                    online = start + proc + impl + comm
+                    derived.append({"plant": p.get("name"), "start_month": start, "procurement_months": proc, "implementation_months": impl, "commissioning_months": comm, "expected_online_month": online})
+                    offset += max(1, int(round(impl*0.5)))
+                st.table(pd.DataFrame(derived))
+            else:
+                st.write("Schedule unavailable.")
+
+        st.markdown("---")
+        st.markdown("## Decision Rationale")
+        for b in result.get("rationale", {}).get("bullets", []):
+            st.write(f"- {b}")
+
+        st.markdown("---")
+        st.markdown("## Steel Plant Distribution")
+        plants = result.get("em_summaries", {}).get("steel_info", {}).get("plant_distribution", [])
+        if plants:
+            st.table(pd.DataFrame(plants))
+        else:
+            st.write("No plant distribution found.")
+
+        st.markdown("---")
+        st.markdown("## Infrastructure Summary")
+        infra = pretty_infra(result.get("infrastructure_analysis", {}))
+        ports = infra.get("ports", {})
+        st.markdown("### Ports")
+        for k, v in ports.items():
+            label = k.replace("_", " ").title()
+            st.write(f"- **{label}:** {v}")
+        st.markdown("### Energy")
+        energy = infra.get("energy", {})
+        for k, v in energy.items():
+            label = k.replace("_", " ").title()
+            st.write(f"- **{label}:** {v}")
