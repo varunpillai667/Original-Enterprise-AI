@@ -1,3 +1,5 @@
+===== FILE: app.py =====
+
 # app.py
 import streamlit as st
 import plotly.graph_objects as go
@@ -41,7 +43,7 @@ st.markdown("---")
 # --- Strategic Query (kept fully visible as requested) ---
 st.subheader("Strategic Query")
 st.write("Ask a high-level, strategic question for Group X (example: 'How can we increase steel production with minimal investment?').")
-query = st.text_area("Enter strategic query here", value="How can we increase steel production with minimal investment?", height=120)
+query = st.text_area("Enter strategic query here", value="Increase total steel production by 2 MTPA within the next 15 months, allocating the capacity increase appropriately across all steel plants. Ensure that the investments required for this upgrade can be recovered within a payback period of less than 3 years.", height=120)
 
 # --- Run Simulation Button ---
 col_run, col_empty = st.columns([1, 5])
