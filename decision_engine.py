@@ -1,17 +1,11 @@
-# ------------------------------
+# =========================
 # File: decision_engine.py
-# ------------------------------
+# =========================
 from __future__ import annotations
 import json, re
 from pathlib import Path
 from typing import Dict, Any, List
 
-# Executive consulting-grade decision engine
-# Documentation prioritized over inline comments.
-
-# -------------------------
-# Config / constants
-# -------------------------
 CAPEX_PER_MTPA_USD = 420_000_000
 MARGIN_PER_TON_USD = 120
 MW_PER_MTPA = 2.5
@@ -26,7 +20,7 @@ ENERGY_GRID_SHARE_OF_USED = 3.0 / 4.0
 START_CONFIDENCE = 88
 MIN_CONFIDENCE = 50
 
-USER_DISTRIBUTION_MTPA = [0.8, 0.6, 0.4, 0.2]  # SP1..SP4
+USER_DISTRIBUTION_MTPA = [0.8, 0.6, 0.4, 0.2]
 
 CANDIDATE_MOCKS = [
     Path(__file__).parent / "mock_data.json",
@@ -34,12 +28,8 @@ CANDIDATE_MOCKS = [
     Path("/mnt/data/mock_data.json"),
 ]
 
-# Uploaded doc path (preserved for traceability)
 OPERATIONAL_FLOW_DOC = "/mnt/data/Operational Flow.docx"
 
-# -------------------------
-# Small helpers
-# -------------------------
 def _capex_for_mtpa(mtpa: float) -> float:
     return mtpa * CAPEX_PER_MTPA_USD
 
@@ -54,9 +44,6 @@ def _approx_equal(a: float, b: float, rel_tol: float = 0.01) -> bool:
         return abs(a) < 1e-6
     return abs(a - b) <= max(rel_tol * abs(b), 1e-6)
 
-# -------------------------
-# Load mock data (defensive)
-# -------------------------
 def _load_mock_data() -> Dict[str, Any]:
     debug: List[str] = []
     for p in CANDIDATE_MOCKS:
@@ -90,9 +77,6 @@ def _load_mock_data() -> Dict[str, Any]:
     }
     return {"data": defaults, "debug": debug, "path": None}
 
-# -------------------------
-# Parse strategic query
-# -------------------------
 def _parse_query(query: str) -> Dict[str, Any]:
     q = (query or "").lower()
     out = {"target_mtpa": 2.0, "target_months": 15, "max_payback_months": 36, "debug": []}
@@ -116,11 +100,7 @@ def _parse_query(query: str) -> Dict[str, Any]:
             out["debug"].append("Failed parsing payback; using 36 months")
     return out
 
-# -------------------------
-# Executive analysis helpers
-# -------------------------
 def _rank_by_roi(breakdown: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    # ROI proxy = annual_margin / capex
     for p in breakdown:
         capex = float(p.get("capex_usd", 0)) or 1.0
         margin = float(p.get("annual_margin_usd", 0))
@@ -131,9 +111,6 @@ def _stress_test_margin(margin_drop_pct: float, total_margin: float) -> Dict[str
     stressed_margin = total_margin * (1 - margin_drop_pct)
     return {"stress_pct": margin_drop_pct, "stressed_margin": stressed_margin}
 
-# -------------------------
-# Main run_simulation (executive)
-# -------------------------
 def run_simulation(query: str) -> Dict[str, Any]:
     parsed = _parse_query(query)
     debug: List[str] = parsed.get("debug", [])
@@ -144,7 +121,6 @@ def run_simulation(query: str) -> Dict[str, Any]:
     if loaded.get("path"):
         debug.append(f"Using mock file: {loaded.get('path')}")
 
-    # retrieve site lists with safe defaults
     plants = (data.get("steel") or {}).get("plants") or []
     if len(plants) < 4:
         debug.append("Steel plant data incomplete; applying 4-plant defaults.")
@@ -174,7 +150,6 @@ def run_simulation(query: str) -> Dict[str, Any]:
             {"id":"E3","capacity_mw":400},
         ]
 
-    # infrastructure availability (group-level rules)
     total_port_capacity = sum(int(p.get("capacity_tpa", 0)) for p in ports)
     used_port = PORT_UTILIZATION * total_port_capacity
     group_port_share = used_port * PORT_GROUP_SHARE_OF_USED
@@ -188,7 +163,6 @@ def run_simulation(query: str) -> Dict[str, Any]:
     spare_energy = total_energy_capacity - used_energy
     available_energy_for_steel = spare_energy + group_energy_share
 
-    # apply requested distribution
     num_plants = min(4, len(plants))
     dist_mtpa = USER_DISTRIBUTION_MTPA[:num_plants]
     added_tpa_list = [int(round(m * 1_000_000)) for m in dist_mtpa]
@@ -232,7 +206,6 @@ def run_simulation(query: str) -> Dict[str, Any]:
     port_required_tpa = int(round(total_added_tpa * CARGO_TONNE_PER_STEEL_TONNE))
     aggregated_payback_months = None if total_margin == 0 else (total_capex / total_margin) * 12.0
 
-    # timeline estimate (executive-level durations)
     planning = 3
     procurement = max(2, int(round(2 + total_added_mtpa * 4)))
     implementation = max(3, int(round(4 + total_added_mtpa * 6)))
@@ -240,7 +213,6 @@ def run_simulation(query: str) -> Dict[str, Any]:
     stabilization = max(1, int(round(commissioning * 0.5)))
     estimated_total_months = planning + procurement + implementation + commissioning + stabilization
 
-    # validations against strategic query
     validations = {"checks": [], "passed": True}
     target_mtpa = parsed["target_mtpa"]
     if _approx_equal(total_added_mtpa, target_mtpa, rel_tol=0.01):
@@ -278,16 +250,13 @@ def run_simulation(query: str) -> Dict[str, Any]:
         validations["checks"].append({"name": "Schedule", "status": "fail", "detail": f"Estimated {estimated_total_months} months exceeds target {target_months} months"})
         validations["passed"] = False
 
-    # executive analysis: rank plants by ROI (proxy), suggest Phase A (highest ROI)
     ranked = _rank_by_roi(breakdown)
-    phase_a = [p["name"] for p in ranked[:2]]  # highest ROI plants for phase A
+    phase_a = [p["name"] for p in ranked[:2]]
     phase_b = [p["name"] for p in ranked[2:]] if len(ranked) > 2 else []
 
-    # stress-test margins (10% and 20% downside)
     stress_10 = _stress_test_margin(0.10, total_margin)
     stress_20 = _stress_test_margin(0.20, total_margin)
 
-    # build executive recommendation (concise, prioritized)
     headline = f"Executive Recommendation: +{total_added_mtpa:.3f} MTPA (staged, ROI-first)"
     metrics = {
         "added_tpa": int(total_added_tpa),
@@ -299,7 +268,6 @@ def run_simulation(query: str) -> Dict[str, Any]:
     }
 
     actions = [
-        # ordered by priority and executive phrasing
         "Phase A (0–9 months): Deploy MES + targeted automation and modular EAF cells at highest-ROI plants (immediate OEE uplift).",
         "Parallel: Secure long-lead equipment purchase agreements (frame contracts) and pre-qualify suppliers to compress procurement.",
         "Phase B (6–15 months): Execute raw-material handling upgrades, stockyard automation and port corridor arrangements to protect commercial cargo throughput.",
@@ -308,7 +276,6 @@ def run_simulation(query: str) -> Dict[str, Any]:
         "Risk & Mitigation: Pre-negotiated 3PL and temporary berth leases; contingency PPA tranche; supplier SLAs with penalties for key long-lead items."
     ]
 
-    # rationales in executive tone; explicitly explain why each recommendation
     rationale_bullets: List[str] = []
     rationale_bullets.append("MES + targeted automation: Rapidly improves OEE and reduces commissioning ramp time — shortest path to cash flow improvement and payback acceleration.")
     rationale_bullets.append("Modular EAF approach: Faster installation, modular commissioning, better capital efficiency vs full greenfield expansion.")
@@ -317,12 +284,10 @@ def run_simulation(query: str) -> Dict[str, Any]:
     rationale_bullets.append("Energy program (PPA + WHR + buffering): Reduces exposure to grid deficits and improves operating margins, directly shortening payback.")
     rationale_bullets.append(f"Staging recommendation: Phase A targets {', '.join(phase_a)} to maximize early ROI; Phase B handles remaining plants to smooth capex and schedule risk.")
 
-    # append validations (evidence statements) — show pass/fail
     for chk in validations["checks"]:
         status = chk["status"].upper()
         rationale_bullets.append(f"Validation — {chk['name']}: {status} — {chk['detail']}")
 
-    # targeted mitigations when fails occur
     mitigations: List[str] = []
     for chk in validations["checks"]:
         if chk["status"] == "fail":
@@ -341,25 +306,22 @@ def run_simulation(query: str) -> Dict[str, Any]:
         rationale_bullets.append("Mitigations / Alternatives:")
         rationale_bullets += mitigations
 
-    # confidence scoring (penalize failures and stress)
     confidence = START_CONFIDENCE
     for chk in validations["checks"]:
         if chk["status"] == "fail":
             confidence -= 10
-    # penalize stressed downside risk (10% margin drop)
     if stress_10["stressed_margin"] <= 0:
         confidence -= 5
     confidence = max(confidence, MIN_CONFIDENCE)
 
-    # roadmap phases and per-plant schedule (staggered)
     per_plant_schedule = []
     sorted_breakdown = _rank_by_roi(breakdown)
     offset = 0
     for p in sorted_breakdown:
         share = p["added_tpa"] / (total_added_tpa or 1)
-        proc = max(1, int(round(procurement * share)))
-        impl = max(1, int(round(implementation * share)))
-        comm = max(1, int(round(commissioning * share)))
+        proc = max(1, int(round(procurement * share))) if 'procurement' in locals() else 2
+        impl = max(1, int(round(implementation * share))) if 'implementation' in locals() else 6
+        comm = max(1, int(round(commissioning * share))) if 'commissioning' in locals() else 1
         start = offset + 1
         online = start + proc + impl + comm
         per_plant_schedule.append({
@@ -372,7 +334,6 @@ def run_simulation(query: str) -> Dict[str, Any]:
         })
         offset += max(1, int(round(impl * 0.5)))
 
-    # assemble result
     result = {
         "recommendation": {
             "headline": headline,
@@ -434,7 +395,6 @@ def run_simulation(query: str) -> Dict[str, Any]:
 
     return result
 
-# quick smoke run
 if __name__ == "__main__":
     q = "Increase steel production by 2 MTPA in 15 months; payback less than 3 years"
     import pprint
