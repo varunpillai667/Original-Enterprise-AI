@@ -1,10 +1,4 @@
-# File: app.py
-# Path: /mount/src/original-enterprise-ai/app.py
-"""
-Streamlit UI — improved per-plant hiring view and prettier infrastructure analysis output.
-"""
-
-from __future__ import annotations
+# app.py
 import streamlit as st
 import pandas as pd
 import json
@@ -14,76 +8,80 @@ from decision_engine import run_simulation
 st.set_page_config(page_title="Original Enterprise AI Concept Prototype", layout="wide")
 st.title("Original Enterprise AI Concept Prototype")
 
-# Intro (kept concise)
+# ---------------------------------------------------------
+# FULL INTRO (RESTORED)
+# ---------------------------------------------------------
 st.markdown(
     """
-**Group X** has three subsidiaries — **Ports (4 ports)**, **Steel (4 plants)**, and **Energy (3 power plants)**.  
-All simulation results in this prototype are based on **assumed, simplified data only** and are provided purely for demonstration.
+### Introduction
+
+**Group X** operates **4 ports**, **4 steel plants**, and **3 power plants**.  
+All simulation results in this prototype are based on **assumed, simplified data only**, used only for conceptual demonstration.
+
+### Operating Principles
+
+**LOCAL Nodes — Site Layer**  
+LOCAL Nodes collect and transmit operational data from each port, steel plant, and power plant.  
+They do minimal processing.
+
+**Enterprise Managers (EMs) — Company Layer**  
+Each company has an EM:  
+- **Ports EM** (manages all 4 ports)  
+- **Steel EM** (manages all 4 steel plants)  
+- **Energy EM** (manages all 3 power plants)  
+
+EMs collect data both from LOCAL nodes and from their **company-level IT systems** (ERP, MES, SCADA, planning systems).  
+They make company-level decisions and send consolidated information upward.
+
+**Group Manager — Group Layer**  
+The Group Manager connects all EMs and **group-level systems**, enabling Group-X-wide coordination, simulations, and decisions.
+
+**Purpose of this prototype:**  
+Explain how a multi-layer enterprise system could respond to strategic questions using simulated data.
 """
 )
+
 st.markdown("---")
 
-# Utility helpers (display formatting)
-def _safe_parse_hiring(x: Any) -> Dict[str, int]:
-    """
-    Return a dict with keys: engineers, maintenance, operators, project_managers.
-    Accepts either dict or JSON-string; returns zeros for missing keys.
-    """
-    defaults = {"engineers": 0, "maintenance": 0, "operators": 0, "project_managers": 0}
-    if x is None:
-        return defaults
+# ---------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------
+def parse_hiring(x: Any) -> Dict[str, int]:
+    base = {"engineers": 0, "maintenance": 0, "operators": 0, "project_managers": 0}
     if isinstance(x, dict):
-        return {k: int(x.get(k, 0)) for k in defaults.keys()}
+        return {k: int(x.get(k, 0)) for k in base}
     if isinstance(x, str):
         try:
-            parsed = json.loads(x)
-            if isinstance(parsed, dict):
-                return {k: int(parsed.get(k, 0)) for k in defaults.keys()}
-        except Exception:
+            j = json.loads(x)
+            if isinstance(j, dict):
+                return {k: int(j.get(k, 0)) for k in base}
+        except:
             pass
-    return defaults
+    return base
 
-def _humanize_number(v: Any) -> Any:
-    """
-    Format ints with commas and floats to 2 decimals. Leave other types unchanged.
-    """
-    try:
-        if isinstance(v, float):
-            # represent large floats nicely
-            return round(v, 2)
-        if isinstance(v, int):
-            return f"{v:,}"
-    except Exception:
-        pass
+def nice_number(v: Any):
+    if isinstance(v, int):
+        return f"{v:,}"
+    if isinstance(v, float):
+        return round(v, 2)
     return v
 
-def _prettify_infra(infra: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Round and format infrastructure analysis numbers for display.
-    """
-    pretty: Dict[str, Any] = {}
-    for group, data in (infra or {}).items():
-        if not isinstance(data, dict):
-            pretty[group] = data
-            continue
-        pretty[group] = {}
-        for k, v in data.items():
-            # nested dicts (e.g., ports -> nested stats)
-            if isinstance(v, dict):
-                pretty[group][k] = {}
-                for kk, vv in v.items():
-                    if isinstance(vv, (int, float)):
-                        pretty[group][k][kk] = _humanize_number(vv)
-                    else:
-                        pretty[group][k][kk] = vv
-            else:
-                pretty[group][k] = _humanize_number(v)
-    return pretty
+def pretty_infra(data: Dict[str, Any]) -> Dict[str, Any]:
+    out = {}
+    for section, vals in (data or {}).items():
+        if isinstance(vals, dict):
+            out[section] = {k: nice_number(v) for k, v in vals.items()}
+        else:
+            out[section] = vals
+    return out
 
-# Strategic Query UI
+# ---------------------------------------------------------
+# Strategic Query
+# ---------------------------------------------------------
 st.subheader("Strategic Query")
+
 query = st.text_area(
-    "Enter strategic query here",
+    "Enter high-level strategic query",
     value=(
         "Increase total steel production by 2 MTPA within the next 15 months, "
         "allocating the capacity increase appropriately across all steel plants. "
@@ -93,130 +91,129 @@ query = st.text_area(
     height=140,
 )
 
-# Run Simulation button
+# ---------------------------------------------------------
+# Run simulation
+# ---------------------------------------------------------
 if st.button("Run Simulation"):
+
     if not query.strip():
-        st.error("Please enter a strategic query.")
+        st.error("Please enter a query.")
+        st.stop()
+
+    with st.spinner("Simulating..."):
+        try:
+            result = run_simulation(query)
+        except Exception as e:
+            st.error(str(e))
+            st.stop()
+
+    # ---------------------------------------------------------
+    # Recommendation
+    # ---------------------------------------------------------
+    rec = result.get("recommendation", {})
+    st.header("Recommendation")
+    st.subheader(rec.get("headline", ""))
+
+    if rec.get("summary"):
+        st.write(rec["summary"])
+
+    metrics = rec.get("metrics", {})
+    cols = st.columns(4)
+    cols[0].metric("Added (MTPA)", metrics.get("added_mtpa", "—"))
+    cols[1].metric("Investment (USD)", f"${metrics.get('investment_usd',0):,}")
+    cols[2].metric("Payback (months)", metrics.get("estimated_payback_months", "—"))
+    cols[3].metric("Confidence", f"{result.get('confidence_pct','—')}%")
+
+    if rec.get("actions"):
+        st.subheader("Key Recommended Actions")
+        for a in rec["actions"][:8]:
+            st.write(f"- {a}")
+
+    # Debug logs
+    debug = result.get("notes", {}).get("debug", [])
+    if debug:
+        with st.expander("Debug Notes"):
+            for d in debug:
+                st.write(f"- {d}")
+
+    st.markdown("---")
+
+    # ---------------------------------------------------------
+    # ROADMAP (FULLY RESTORED)
+    # ---------------------------------------------------------
+    st.header("Roadmap")
+    roadmap = result.get("roadmap", {})
+
+    # Phase timeline
+    st.subheader("Phases")
+    for phase in roadmap.get("phases", []):
+        st.write(f"**{phase['phase']}** — {phase['months']} months")
+        note = phase.get("notes")
+        if note:
+            st.write(f"• {note}")
+
+    # PER-PLANT SCHEDULE (RESTORED)
+    st.subheader("Per-Plant Schedule")
+    plant_sched = roadmap.get("per_plant_schedule", [])
+    if plant_sched:
+        st.table(pd.DataFrame(plant_sched))
     else:
-        with st.spinner("Running simulation..."):
-            try:
-                result = run_simulation(query)
-            except Exception as exc:
-                st.error(f"Simulation error: {exc}")
-                result = None
+        st.write("Schedule unavailable.")
 
-        if not result:
-            st.error("Simulation returned no result.")
-        else:
-            # ---------------- Recommendation ----------------
-            st.header("Recommendation")
-            rec = result.get("recommendation", {})
-            st.subheader(rec.get("headline", "Proposed action"))
-            if rec.get("summary"):
-                st.write(rec["summary"])
+    st.markdown("---")
 
-            metrics = rec.get("metrics", {})
-            cols = st.columns(4)
-            added_mtpa = metrics.get("added_mtpa", result.get("expected_increase_tpa", 0) / 1_000_000)
-            cols[0].metric("Added (MTPA)", f"{added_mtpa}")
-            invest = metrics.get("investment_usd", result.get("investment_usd", 0))
-            cols[1].metric("Investment (USD)", f"${invest:,}")
-            payback = metrics.get("estimated_payback_months", result.get("roi_months"))
-            cols[2].metric("Est. Payback (months)", payback if payback is not None else "—")
-            confidence = result.get("confidence_pct", None)
-            cols[3].metric("Confidence", f"{confidence}%" if confidence is not None else "N/A")
+    # ---------------------------------------------------------
+    # RATIONALE (no assumptions, no documents)
+    # ---------------------------------------------------------
+    st.header("Decision Rationale")
+    st.subheader("Why these recommendations?")
+    for b in result.get("rationale", {}).get("bullets", []):
+        st.write(f"- {b}")
 
-            if rec.get("actions"):
-                st.subheader("Key recommended actions")
-                for a in rec.get("actions", [])[:8]:
-                    st.write(f"- {a}")
+    st.markdown("---")
 
-            debug_lines = result.get("notes", {}).get("debug", [])
-            if debug_lines:
-                with st.expander("Debug / data-loading notes"):
-                    for d in debug_lines:
-                        st.write(f"- {d}")
+    # ---------------------------------------------------------
+    # PER-PLANT FINANCIALS (with cleaned hiring view)
+    # ---------------------------------------------------------
+    st.subheader("Per-Plant Financials")
+    plant_dist = (
+        result.get("em_summaries", {})
+        .get("steel_info", {})
+        .get("plant_distribution", [])
+    )
 
-            st.markdown("---")
+    if plant_dist:
+        df = pd.DataFrame(plant_dist)
 
-            # ---------------- Roadmap ----------------
-            st.header("Roadmap")
-            roadmap = result.get("roadmap", {})
-            phases = roadmap.get("phases", [])
-            st.subheader("Phases")
-            for ph in phases:
-                ph_name = ph.get("phase", "Phase")
-                ph_months = ph.get("months", "—")
-                st.write(f"- **{ph_name}** ({ph_months} months)")
-                acts = ph.get("activities") or ph.get("notes")
-                if isinstance(acts, list):
-                    for it in acts:
-                        st.write(f"  - {it}")
-                elif acts:
-                    st.write(f"  - {acts}")
+        if "hiring_estimate" in df.columns:
+            hires = df["hiring_estimate"].apply(parse_hiring)
+            hires_df = pd.DataFrame(list(hires))
+            df = pd.concat([df.drop(columns=["hiring_estimate"]), hires_df], axis=1)
 
-            st.subheader("Per-plant schedule")
-            p_sched = roadmap.get("per_plant_schedule", [])
-            if p_sched:
-                st.table(pd.DataFrame(p_sched))
-            else:
-                st.write("Per-plant schedule not available.")
+        # Format currency
+        if "capex_usd" in df.columns:
+            df["capex_usd"] = df["capex_usd"].apply(lambda x: f"${x:,}")
+        if "annual_margin_usd" in df.columns:
+            df["annual_margin_usd"] = df["annual_margin_usd"].apply(lambda x: f"${x:,}")
 
-            st.markdown("---")
+        st.table(df)
+    else:
+        st.write("No plant data.")
 
-            # ---------------- Decision Rationale ----------------
-            st.header("Decision Rationale")
-            rationale = result.get("rationale", {})
-            bullets = rationale.get("bullets", [])
-            st.subheader("Why these recommendations?")
-            for b in bullets:
-                st.write(f"- {b}")
+    st.markdown("---")
 
-            st.markdown("---")
+    # ---------------------------------------------------------
+    # INFRASTRUCTURE (cleaned view)
+    # ---------------------------------------------------------
+    st.subheader("Infrastructure Analysis (Ports & Energy)")
 
-            # ------------- Per-Plant Financials (improved hiring view) -------------
-            st.subheader("Per-Plant Financials (detailed)")
-            steel_info = result.get("em_summaries", {}).get("steel_info", {})
-            plant_dist = steel_info.get("plant_distribution", [])
+    infra = pretty_infra(result.get("infrastructure_analysis", {}))
+    st.json(infra)
 
-            if plant_dist:
-                df = pd.DataFrame(plant_dist)
+    st.markdown("---")
 
-                # Expand hiring_estimate into separate columns if present (dict or JSON string)
-                if "hiring_estimate" in df.columns:
-                    hires = df["hiring_estimate"].apply(_safe_parse_hiring).tolist()
-                    hires_df = pd.DataFrame(hires, index=df.index)
-                    # remove original column and concat expanded hires
-                    df = df.drop(columns=["hiring_estimate"]).join(hires_df[["operators", "maintenance", "engineers", "project_managers"]])
-
-                # Format currency-like columns
-                if "capex_usd" in df.columns:
-                    df["capex_usd"] = df["capex_usd"].apply(lambda x: f"${int(x):,}" if pd.notna(x) else x)
-                if "annual_margin_usd" in df.columns:
-                    df["annual_margin_usd"] = df["annual_margin_usd"].apply(lambda x: f"${int(x):,}" if pd.notna(x) else x)
-
-                # Ensure column order: id, name, current_capacity_tpa, added_mtpa, added_tpa, capex, annual_margin, operators, maintenance, engineers, project_managers, payback_months
-                cols_order = []
-                for c in ["id", "name", "current_capacity_tpa", "added_mtpa", "added_tpa", "new_capacity_tpa", "capex_usd", "annual_margin_usd", "operators", "maintenance", "engineers", "project_managers", "payback_months"]:
-                    if c in df.columns:
-                        cols_order.append(c)
-                df = df[cols_order]
-
-                st.table(df)
-            else:
-                st.write("No per-plant breakdown available.")
-
-            st.markdown("---")
-
-            # ------------- Infrastructure analysis (pretty JSON) -------------
-            st.subheader("Infrastructure Analysis (Ports & Energy)")
-            infra = result.get("infrastructure_analysis", {})
-            pretty_infra = _prettify_infra(infra)
-            # Use st.json for collapsible view but with pretty/rounded numbers
-            st.json(pretty_infra)
-
-            st.markdown("---")
-
-            # ------------- Full raw result -------------
-            with st.expander("Full result (raw)"):
-                st.json(result)
+    # ---------------------------------------------------------
+    # Raw JSON
+    # ---------------------------------------------------------
+    with st.expander("Full result (raw)"):
+        st.json(result)
