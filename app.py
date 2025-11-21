@@ -1,6 +1,6 @@
 # app.py
 import streamlit as st
-import plotly.graph_objects as go
+import pandas as pd
 from decision_engine import run_simulation
 
 st.set_page_config(page_title="Original Enterprise AI Concept Prototype", layout="wide")
@@ -44,8 +44,7 @@ st.markdown("---")
 
 # --- Strategic Query ---
 st.subheader("Strategic Query")
-st.write("Ask a high-level, strategic question for Group X.")
-
+st.write("High-level strategic question for Group X.")
 query = st.text_area(
     "Enter strategic query here",
     value=(
@@ -54,22 +53,19 @@ query = st.text_area(
         "Ensure that the investments required for this upgrade can be recovered "
         "within a payback period of less than 3 years."
     ),
-    height=120
+    height=120,
 )
 
-# --- Run Simulation Button ---
-col_run, col_empty = st.columns([1, 5])
+# Run Simulation Button
+col_run, _ = st.columns([1, 5])
 with col_run:
     run_button = st.button("Run Simulation")
-
-# Output area
-output_placeholder = st.empty()
 
 if run_button:
     if not query.strip():
         st.error("Please enter a strategic query before running the simulation.")
     else:
-        with st.spinner("Running simulation and aggregating EM outputs..."):
+        with st.spinner("Running simulation..."):
             try:
                 result = run_simulation(query)
             except Exception as exc:
@@ -77,79 +73,110 @@ if run_button:
                 result = None
 
         if result:
+            # Summary metrics
             st.subheader("Simulation Summary")
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Recommended Plant / Action", result.get("recommended_plant", "—"))
-            with col2:
-                exp_inc = result.get("expected_increase_tpa", 0)
-                if exp_inc >= 1_000_000:
-                    st.metric("Expected Increase", f"{exp_inc/1_000_000:.2f} MTPA")
-                else:
-                    st.metric("Expected Increase (tpa)", f"{exp_inc:.0f}")
-            with col3:
-                st.metric("Estimated Investment (USD)", f"${result.get('investment_usd', 0):,.0f}")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Recommended Plant(s) / Action", result.get("recommended_plant", "—"))
+            exp_inc = result.get("expected_increase_tpa", 0)
+            if exp_inc >= 1_000_000:
+                c2.metric("Expected Increase", f"{exp_inc/1_000_000:.2f} MTPA")
+            else:
+                c2.metric("Expected Increase (tpa)", f"{exp_inc:,}")
+            c3.metric("Estimated Investment (USD)", f"${result.get('investment_usd', 0):,}")
 
-            cols = st.columns(2)
-            with cols[0]:
-                st.write(f"**ROI Period:** {result.get('roi_months', '—')} months")
-                st.write(f"**Energy Required:** {result.get('energy_required_mw', '—')} MW")
-            with cols[1]:
-                st.write("**Confidence:**")
-                st.progress(int(result.get("confidence_pct", 50)))
+            # ROI and energy
+            st.write("")
+            r1, r2 = st.columns(2)
+            r1.write(f"**ROI Period:** {result.get('roi_months', '—')} months")
+            r1.write(f"**Confidence:** {result.get('confidence_pct', '—')}%")
+            r2.write(f"**Energy Required:** {result.get('energy_required_mw', '—')} MW")
 
             st.markdown("---")
 
+            # EM summaries (compact)
             st.subheader("Enterprise Manager Summaries")
-            em_cols = st.columns(3)
-            em_summaries = result.get("em_summaries", {})
-
-            # Ports EM
-            with em_cols[0]:
+            ems = result.get("em_summaries", {})
+            cols = st.columns(3)
+            # Ports
+            with cols[0]:
                 st.markdown("**Ports EM**")
-                ports_info = em_summaries.get("ports_info", {})
-                st.write(f"- Managed ports: {ports_info.get('num_ports', 4)}")
-                for rec in ports_info.get("port_recommendations", []):
-                    st.write(f"- {rec}")
-
-            # Steel EM
-            with em_cols[1]:
+                ports_info = ems.get("ports_info", {})
+                st.write(f"- Managed ports: {ports_info.get('num_ports', '—')}")
+            # Steel
+            with cols[1]:
                 st.markdown("**Steel EM**")
-                steel_info = em_summaries.get("steel_info", {})
-                st.write(f"- Managed plants: {steel_info.get('num_plants', 4)}")
-                for rec in steel_info.get("plant_recommendations", []):
-                    st.write(f"- {rec}")
-
-            # Energy EM
-            with em_cols[2]:
+                steel_info = ems.get("steel_info", {})
+                st.write(f"- Managed plants: {steel_info.get('num_plants', '—')}")
+            # Energy
+            with cols[2]:
                 st.markdown("**Energy EM**")
-                energy_info = em_summaries.get("energy_info", {})
-                st.write(f"- Managed power plants: {energy_info.get('num_plants', 3)}")
-                for rec in energy_info.get("energy_recommendations", []):
-                    st.write(f"- {rec}")
+                energy_info = ems.get("energy_info", {})
+                st.write(f"- Managed power plants: {energy_info.get('num_plants', '—')}")
 
             st.markdown("---")
 
+            # Per-plant financial table
+            st.subheader("Per-Plant Financials")
+            distribution = steel_info.get("plant_distribution", [])
+            if distribution:
+                df_rows = []
+                for p in distribution:
+                    df_rows.append({
+                        "Plant": p.get("name", p.get("id", "")),
+                        "Current Capacity (tpa)": int(p.get("current_capacity_tpa", 0)),
+                        "Added (tpa)": int(p.get("added_tpa", 0)),
+                        "New Capacity (tpa)": int(p.get("new_capacity_tpa", 0)),
+                        "CAPEX (USD)": int(p.get("capex_usd", 0)),
+                        "Annual Margin (USD)": int(p.get("annual_margin_usd", 0)),
+                        "Payback (months)": p.get("payback_months", None),
+                    })
+                df = pd.DataFrame(df_rows)
+                # format numbers for readability
+                df_display = df.copy()
+                df_display["Current Capacity (tpa)"] = df_display["Current Capacity (tpa)"].map("{:,}".format)
+                df_display["Added (tpa)"] = df_display["Added (tpa)"].map("{:,}".format)
+                df_display["New Capacity (tpa)"] = df_display["New Capacity (tpa)"].map("{:,}".format)
+                df_display["CAPEX (USD)"] = df_display["CAPEX (USD)"].map(lambda x: f"${x:,}")
+                df_display["Annual Margin (USD)"] = df_display["Annual Margin (USD)"].map(lambda x: f"${x:,}")
+                st.table(df_display)
+            else:
+                st.write("No per-plant distribution available.")
+
+            st.markdown("---")
+
+            # Infrastructure and timeline
+            st.subheader("Infrastructure & Timeline")
             infra = result.get("infrastructure_analysis", {})
-            if infra:
-                st.subheader("Infrastructure Analysis")
-                for item in infra.get("port_capacity_analysis", []):
-                    st.write(f"- {item}")
-                for item in infra.get("energy_capacity_analysis", []):
-                    st.write(f"- {item}")
+            for line in infra.get("port_capacity_analysis", []):
+                st.write(f"- {line}")
+            for line in infra.get("energy_capacity_analysis", []):
+                st.write(f"- {line}")
 
             timeline = result.get("implementation_timeline", {})
             if timeline:
-                st.subheader("Implementation Timeline")
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    st.metric("Planning Phase", f"{timeline.get('planning_months', 0)} months")
-                with c2:
-                    st.metric("Implementation Phase", f"{timeline.get('implementation_months', 0)} months")
-                with c3:
-                    st.metric("Stabilization", f"{timeline.get('stabilization_months', 0)} months")
+                st.write("")
+                t1, t2, t3 = st.columns(3)
+                t1.metric("Planning", f"{timeline.get('planning_months', 0)} months")
+                t2.metric("Implementation", f"{timeline.get('implementation_months', 0)} months")
+                t3.metric("Stabilization", f"{timeline.get('stabilization_months', 0)} months")
 
+            # Notes & recommendations
+            st.markdown("---")
+            st.subheader("Notes & Recommendations")
+            notes = result.get("notes", {})
+            assumptions = notes.get("assumptions", {})
+            st.write("**Assumptions**")
+            st.write(f"- CAPEX per 1 MTPA: ${assumptions.get('capex_per_mtpa_usd', '—'):,}")
+            st.write(f"- Margin per tonne: ${assumptions.get('margin_per_ton_usd', '—')}")
+            st.write(f"- Energy per 1 MTPA: {assumptions.get('mw_per_mtpa', '—')} MW")
+
+            st.write("")
+            st.write("**Recommendations**")
+            for rec in notes.get("recommendations", []):
+                st.write(f"- {rec}")
+
+            st.markdown("---")
             with st.expander("Full Result (raw)"):
                 st.json(result)
         else:
-            st.warning("No result returned from simulation.")
+            st.warning("No result returned from simulation. Check logs or inputs.")
