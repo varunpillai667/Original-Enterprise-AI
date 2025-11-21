@@ -1,47 +1,35 @@
 # decision_engine.py
 """
 Decision engine — produces actionable Recommendation, Roadmap, and Rationale.
-
-Key behavior:
-- Uses exact user distribution: SP1 +0.8, SP2 +0.6, SP3 +0.4, SP4 +0.2 MTPA
-- Estimates CAPEX, annual margin, payback
-- Checks port and energy availability and includes logistics/energy mitigations
-- Produces: recommendation.actions, recommendation.hiring_plan, recommendation.capex_breakdown,
-  roadmap.phases (with activities/months), rationale.bullets (compact reasons)
-- Adds debug notes and references to uploaded Operational Flow doc (local path)
+Handles exact distribution, port & energy constraints, capex/margin/payback,
+hiring estimates, roadmap, rationale and debug notes.
 """
 
 from __future__ import annotations
-import json
-import re
+import json, re
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 # -------------------------
-# Assumptions & tunables
+# Tunable constants
 # -------------------------
 CAPEX_PER_MTPA_USD = 420_000_000
 MARGIN_PER_TON_USD = 120
 MW_PER_MTPA = 2.5
-
-# cargo factor: tonnes of port throughput (imports+exports) per tonne steel finished (assumption)
 CARGO_TONNE_PER_STEEL_TONNE = 0.15
 
-# port/energy allocation rules (from user)
 PORT_UTILIZATION = 0.70
-PORT_GROUP_SHARE_OF_USED = 1.0 / 3.0  # of the 70% used, 1/3 is group cargo
-ENERGY_UTILIZATION = 0.75
-ENERGY_GRID_SHARE_OF_USED = 3.0 / 4.0  # of the 75% used, 3/4 sold to grid
+PORT_GROUP_SHARE_OF_USED = 1.0 / 3.0
 
-# Project organization assumptions (tunable)
+ENERGY_UTILIZATION = 0.75
+ENERGY_GRID_SHARE_OF_USED = 3.0 / 4.0
+
 START_CONFIDENCE = 85
 MIN_CONFIDENCE = 70
 ENFORCED_PAYBACK_MONTHS = 36
 
-# Distribution requested by user
 USER_DISTRIBUTION_MTPA = [0.8, 0.6, 0.4, 0.2]  # SP1..SP4
 
-# Candidate mock file locations (module dir + likely paths)
 CANDIDATE_MOCKS = [
     Path(__file__).parent / "mock_data.json",
     Path("/mnt/data/Original-Enterprise-AI-main/mock_data.json"),
@@ -49,18 +37,17 @@ CANDIDATE_MOCKS = [
     Path("/mnt/data/mock_data.json"),
 ]
 
-# Reference paths (user uploaded docs)
 OPERATIONAL_FLOW_DOC = "/mnt/data/Operational Flow.docx"
 CONCEPT_PDF = "/mnt/data/Original Enterprise AI-Concept by Varun Pillai.pdf"
 
 # -------------------------
-# Helpers (small, focused)
+# Small helpers
 # -------------------------
 def _capex_for_mtpa(mtpa: float) -> float:
     return mtpa * CAPEX_PER_MTPA_USD
 
-def _annual_margin_for_tpa(added_tpa: int) -> float:
-    return added_tpa * MARGIN_PER_TON_USD
+def _annual_margin_for_tpa(tpa: int) -> float:
+    return tpa * MARGIN_PER_TON_USD
 
 def _energy_mw_for_mtpa(mtpa: float) -> float:
     return mtpa * MW_PER_MTPA
@@ -75,11 +62,10 @@ def _load_mock_data() -> Dict[str, Any]:
             if p.exists():
                 with open(p, "r", encoding="utf-8") as fh:
                     data = json.load(fh)
-                debug.append(f"Loaded mock_data.json from {p}")
+                debug.append(f"Loaded mock_data.json from: {str(p)}")
                 return {"data": data, "debug": debug, "path": str(p)}
         except Exception as exc:
-            debug.append(f"Found file {p} but failed to read JSON: {exc}")
-
+            debug.append(f"Found file {str(p)} but failed to read JSON: {exc}")
     # fallback defaults
     debug.append("No mock_data.json found; using internal defaults.")
     defaults = {
@@ -110,7 +96,7 @@ def _load_mock_data() -> Dict[str, Any]:
     return {"data": defaults, "debug": debug, "path": None}
 
 # -------------------------
-# Parse query (safe)
+# Parse query safely
 # -------------------------
 def _parse_query_for_constraints(query: str) -> Dict[str, Any]:
     q = (query or "").lower()
@@ -120,61 +106,72 @@ def _parse_query_for_constraints(query: str) -> Dict[str, Any]:
         try:
             result["target_mtpa"] = float(m.group(1))
         except Exception:
-            result["debug"].append("Failed to parse target MTPA; using default 2.0")
+            result["debug"].append("Failed to parse target MTPA; default used (2.0).")
     m2 = re.search(r'(\d{1,3})\s*(?:months|month)\b', q)
     if m2:
         try:
             result["target_months"] = int(m2.group(1))
         except Exception:
-            result["debug"].append("Failed to parse months; using default 15")
+            result["debug"].append("Failed to parse months; default used (15).")
     m3 = re.search(r'payback.*?(?:less than|<|within)\s*(\d+)\s*(years|year)', q)
     if m3:
         try:
             result["max_payback_months"] = int(m3.group(1)) * 12
         except Exception:
-            result["debug"].append("Failed to parse payback years; using default")
+            result["debug"].append("Failed to parse payback; default used.")
     return result
 
 # -------------------------
-# Builders for structured output
+# Section builders
 # -------------------------
-def _build_recommendation(headline: str, metrics: Dict[str, Any], actions: List[str], hiring: Dict[str, Any], capex_breakdown: Dict[str, Any], processes: List[str], distribution: List[Dict[str, Any]]) -> Dict[str, Any]:
-    return {
-        "headline": headline,
-        "summary": metrics.get("summary", ""),
-        "metrics": metrics,
-        "actions": actions,
-        "hiring_plan": hiring,
-        "capex_breakdown": capex_breakdown,
-        "process_changes": processes,
-        "distribution": distribution,
+def _build_recommendation_section(headline: str, added_tpa: int, investment: float, payback: Optional[float], energy_mw: float, confidence: int) -> Dict[str, Any]:
+    added_mtpa = round(added_tpa / 1_000_000.0, 3)
+    metrics = {
+        "added_tpa": int(added_tpa),
+        "added_mtpa": added_mtpa,
+        "investment_usd": int(round(investment)),
+        "estimated_payback_months": None if payback is None else round(payback, 1),
+        "energy_required_mw": round(energy_mw, 2),
+        "confidence_pct": confidence,
     }
+    summary = f"Proposed Upgrade: +{added_mtpa:.3f} MTPA steel capacity across Group X Steel Division (investment ${metrics['investment_usd']:,})."
+    return {"headline": headline, "summary": summary, "metrics": metrics}
 
-def _build_roadmap(timeline: Dict[str, int], phases: List[Dict[str, Any]], per_plant_schedule: List[Dict[str, Any]]) -> Dict[str, Any]:
-    return {"timeline_months": timeline, "phases": phases, "per_plant_schedule": per_plant_schedule}
+def _build_roadmap_section(timeline: Dict[str, int], per_plant_breakdown: List[Dict[str, Any]]) -> Dict[str, Any]:
+    phases = [
+        {"phase":"Planning","months":timeline.get("planning_months",2),"notes":"Engineering, permits, procurement."},
+        {"phase":"Procurement","months":timeline.get("procurement_months",3),"notes":"Long-lead orders, vendor contracts."},
+        {"phase":"Implementation","months":timeline.get("implementation_months",6),"notes":"Installation, civil works, electrical."},
+        {"phase":"Commissioning","months":timeline.get("commissioning_months",2),"notes":"Cold/hot commissioning, training."},
+        {"phase":"Stabilization","months":timeline.get("stabilization_months",2),"notes":"Ramp-up, QA, steady-state operations."},
+    ]
+    actions = [f"{p['name']}: add {p['added_tpa']:,} tpa (CapEx ${int(p.get('capex_usd',0)):,})" for p in per_plant_breakdown]
+    return {"phases":phases, "per_plant_actions":actions}
 
-def _build_rationale(bullets: List[str], assumptions: Dict[str, Any], references: Dict[str, str]) -> Dict[str, Any]:
-    return {"bullets": bullets, "assumptions": assumptions, "references": references}
+def _build_rationale_section(bullets: List[str], assumptions: Dict[str, Any], debug_lines: List[str]) -> Dict[str, Any]:
+    b = list(bullets)
+    b.append("Assumptions are listed below and used for resource feasibility and payback calculations.")
+    return {"bullets": b, "assumptions": assumptions, "debug": debug_lines, "references":{"operational_flow_doc":OPERATIONAL_FLOW_DOC, "concept_pdf":CONCEPT_PDF}}
 
 # -------------------------
-# Main orchestration
+# Main: run_simulation
 # -------------------------
 def run_simulation(query: str) -> Dict[str, Any]:
     parsed = _parse_query_for_constraints(query)
     debug_lines: List[str] = parsed.get("debug", [])
 
-    # load data
+    # load mock data (defensive)
     loaded = _load_mock_data()
     data = loaded.get("data", {})
     debug_lines += loaded.get("debug", [])
     if loaded.get("path"):
         debug_lines.append(f"Using mock_data.json at: {loaded.get('path')}")
 
-    # defensive steel plant list
-    steel_section = data.get("steel", {}) or {}
+    # steel plants (defensive)
+    steel_section = data.get("steel") or {}
     plants = steel_section.get("plants") or []
-    if len(plants) < 4:
-        debug_lines.append("Steel plant data missing/incomplete — applying 4-plant defaults.")
+    if not plants or len(plants) < 4:
+        debug_lines.append("Steel plants missing or incomplete; applying 4-plant defaults.")
         plants = [
             {"id":"SP1","name":"Steel Plant 1","current_capacity_tpa":1_200_000},
             {"id":"SP2","name":"Steel Plant 2","current_capacity_tpa":900_000},
@@ -182,11 +179,11 @@ def run_simulation(query: str) -> Dict[str, Any]:
             {"id":"SP4","name":"Steel Plant 4","current_capacity_tpa":600_000},
         ]
 
-    # ports and energy defensive
-    ports_section = data.get("ports", {}) or {}
+    # ports (defensive)
+    ports_section = data.get("ports") or {}
     ports_list = ports_section.get("ports") or []
     if not ports_list:
-        debug_lines.append("Ports missing — using default port capacities.")
+        debug_lines.append("Ports data missing; using default port capacities.")
         ports_list = [
             {"id":"P1","name":"Port 1","capacity_tpa":2_000_000},
             {"id":"P2","name":"Port 2","capacity_tpa":1_800_000},
@@ -194,17 +191,18 @@ def run_simulation(query: str) -> Dict[str, Any]:
             {"id":"P4","name":"Port 4","capacity_tpa":1_400_000},
         ]
 
-    energy_section = data.get("energy", {}) or {}
+    # energy (defensive)
+    energy_section = data.get("energy") or {}
     energy_list = energy_section.get("plants") or []
     if not energy_list:
-        debug_lines.append("Energy plants missing — using default capacities.")
+        debug_lines.append("Energy plant data missing; using default capacities.")
         energy_list = [
             {"id":"E1","name":"Power Plant 1","capacity_mw":500},
             {"id":"E2","name":"Power Plant 2","capacity_mw":450},
             {"id":"E3","name":"Power Plant 3","capacity_mw":400},
         ]
 
-    # compute port & energy availability per rules
+    # compute port & energy availability
     total_port_capacity = sum(int(p.get("capacity_tpa", 0)) for p in ports_list)
     used_port = PORT_UTILIZATION * total_port_capacity
     group_port_share = used_port * PORT_GROUP_SHARE_OF_USED
@@ -218,55 +216,46 @@ def run_simulation(query: str) -> Dict[str, Any]:
     spare_energy = total_energy_capacity - used_energy
     available_energy_for_steel = spare_energy + group_energy_share
 
-    # apply user distribution exactly
+    # apply exact distribution
     num_plants = min(4, len(plants))
     dist_mtpa = USER_DISTRIBUTION_MTPA[:num_plants]
     added_tpa_list = [int(round(m * 1_000_000)) for m in dist_mtpa]
 
-    # per-plant financial computations and action prioritization
     per_plant_breakdown: List[Dict[str, Any]] = []
     total_investment = 0.0
     total_annual_margin = 0.0
 
-    # Hiring assumptions (tunable): per 0.1 MTPA -> operators/maintenance/engineers
-    OPS_PER_0_1MTPA = 5
-    MAINT_PER_0_1MTPA = 2
-    ENGINEERS_PER_0_1MTPA = 1
-    PM_PER_PROJECT = 1  # per plant
+    # hiring ratios per 0.1 MTPA
+    OPS_PER_0_1 = 5
+    MAINT_PER_0_1 = 2
+    ENG_PER_0_1 = 1
+    PM_PER_PROJECT = 1
 
     for idx in range(num_plants):
-        plant = plants[idx]
-        added_tpa = added_tpa_list[idx]
-        added_mtpa = added_tpa / 1_000_000.0
+        p = plants[idx]
+        added = added_tpa_list[idx]
+        added_mtpa = added / 1_000_000.0
         capex = _capex_for_mtpa(added_mtpa)
-        annual_margin = _annual_margin_for_tpa(added_tpa)
-        payback_months: Optional[float] = None
-        if annual_margin > 0:
-            payback_months = (capex / annual_margin) * 12.0
+        annual_margin = _annual_margin_for_tpa(added)
+        payback_months = None if annual_margin == 0 else (capex / annual_margin) * 12.0
 
-        # derive hiring needs
-        units_0_1 = max(1, int(round(added_mtpa * 10)))  # number of 0.1 MTPA blocks
-        ops_needed = units_0_1 * OPS_PER_0_1MTPA
-        maint_needed = units_0_1 * MAINT_PER_0_1MTPA
-        eng_needed = units_0_1 * ENGINEERS_PER_0_1MTPA
+        units_0_1 = max(1, int(round(added_mtpa * 10)))
+        ops_needed = units_0_1 * OPS_PER_0_1
+        maint_needed = units_0_1 * MAINT_PER_0_1
+        eng_needed = units_0_1 * ENG_PER_0_1
         pm_needed = PM_PER_PROJECT
 
         per_plant_breakdown.append({
-            "id": plant.get("id"),
-            "name": plant.get("name", plant.get("id", "")),
-            "current_capacity_tpa": int(plant.get("current_capacity_tpa", 0)),
-            "added_tpa": int(added_tpa),
+            "id": p.get("id"),
+            "name": p.get("name", p.get("id", "")),
+            "current_capacity_tpa": int(p.get("current_capacity_tpa", 0)),
+            "added_tpa": added,
             "added_mtpa": round(added_mtpa, 3),
-            "new_capacity_tpa": int(plant.get("current_capacity_tpa", 0) + added_tpa),
+            "new_capacity_tpa": int(p.get("current_capacity_tpa", 0) + added),
             "capex_usd": int(round(capex)),
             "annual_margin_usd": int(round(annual_margin)),
             "payback_months": None if payback_months is None else round(payback_months, 1),
-            "hiring_estimate": {
-                "operators": ops_needed,
-                "maintenance": maint_needed,
-                "engineers": eng_needed,
-                "project_managers": pm_needed
-            }
+            "hiring_estimate": {"operators": ops_needed, "maintenance": maint_needed, "engineers": eng_needed, "project_managers": pm_needed}
         })
         total_investment += capex
         total_annual_margin += annual_margin
@@ -288,20 +277,18 @@ def run_simulation(query: str) -> Dict[str, Any]:
     stabilization_months = max(1, int(round(commissioning_months * 0.5)))
     total_estimated_months = planning_months + procurement_months + implementation_months + commissioning_months + stabilization_months
 
-    # Now build Recommendation actions: tech upgrades + processes + logistics
-    # Core tech choices (prioritized for speed & ROI): automation, cupola/BOF/EAF upgrades, waste-heat recovery, pelletizing/raw handling, substation & switchgear, VFDs, predictive maintenance, MES integration.
+    # actions (tech/process/logistics)
     actions: List[str] = []
-    # Prioritize SP1/SP2 (largest additions)
-    actions.append("Deploy process automation and MES integration across targeted plants to reduce OEE losses and speed commissioning.")
-    actions.append("Install or upgrade electric furnaces (EAF) capacity or modernize BOF interface where applicable to support incremental steel production.")
-    actions.append("Add raw material handling upgrades: automated feeders, pelletizing modules, improved stockyard and rail/berth interfaces to reduce handling time.")
-    actions.append("Install waste-heat-recovery (WHR) systems and improved boilers to recover energy and lower incremental fuel costs.")
-    actions.append("Upgrade plant power substations / transformers and add VFDs on large drives to support additional MW draw safely.")
-    actions.append("Deploy predictive maintenance sensors (vibration, thermography), and set up a central condition-monitoring hub.")
-    actions.append("Establish temporary on-site project teams and hire contractors for civil & mechanical works to compress schedule.")
-    actions.append("Coordinate with Ports EM to reserve berth windows and stagger arrivals so commercial cargo remains unaffected.")
+    actions.append("Deploy MES & automation to reduce OEE loss and accelerate ramp.")
+    actions.append("Upgrade/add EAF/BOF interfaces or modular EAF capacity as needed.")
+    actions.append("Improve raw-material handling (pelletizing, feeders, stockyard automation).")
+    actions.append("Install WHR and substation upgrades (transformers, VFDs) to support extra MW.")
+    actions.append("Implement predictive maintenance sensors and central monitoring.")
+    actions.append("Coordinate ports schedule: reserve berth windows; stagger shipments to avoid impacting commercial cargo.")
+    actions.append("Arrange short-term PPAs or temporary generation if energy shortfall exists.")
+    actions.append("Hire contractors for civil & mechanical work to compress schedule; internal training for operators.")
 
-    # Capex breakdown estimates (simple split)
+    # capex breakdown
     capex_breakdown = {
         "total_investment_usd": int(round(total_investment)),
         "equipment_pct": 0.65,
@@ -312,7 +299,7 @@ def run_simulation(query: str) -> Dict[str, Any]:
         "other_usd": int(round(total_investment * 0.15)),
     }
 
-    # Consolidated hiring plan across group (sum per-plant hiring estimates)
+    # aggregated hiring
     aggregated_hiring = {"operators": 0, "maintenance": 0, "engineers": 0, "project_managers": 0}
     for p in per_plant_breakdown:
         h = p.get("hiring_estimate", {})
@@ -321,87 +308,36 @@ def run_simulation(query: str) -> Dict[str, Any]:
         aggregated_hiring["engineers"] += int(h.get("engineers", 0))
         aggregated_hiring["project_managers"] += int(h.get("project_managers", 0))
 
-    # Process changes (short list)
     processes = [
-        "Integrate MES -> ERP for real-time production & inventory tracking.",
-        "Adopt dual-shift commissioning plan and temporary overtime policy for ramp-up.",
-        "Implement quality control labs at each plant to manage new blends and product mix.",
-        "Define SOPs for port logistics scheduling and emergency reroute; maintain commercial cargo SLA.",
-        "Establish energy curtailment / load-shedding agreements that do not affect grid commitments."
+        "Integrate MES -> ERP for production & inventory tracking.",
+        "Dual-shift commissioning and temporary overtime policy for ramp-up.",
+        "Quality control labs for new blends and product mix.",
+        "SOPs for port logistics scheduling to preserve commercial cargo SLAs.",
+        "Energy curtailment agreements that protect grid commitments."
     ]
 
-    # Roadmap: phases with activities & per-plant schedule
-    timeline = {
-        "planning_months": planning_months,
-        "procurement_months": procurement_months,
-        "implementation_months": implementation_months,
-        "commissioning_months": commissioning_months,
-        "stabilization_months": stabilization_months,
-        "total_estimated_months": total_estimated_months,
-    }
-
-    # Phase activities (high level)
-    phases = [
-        {"phase": "Planning & Approvals", "months": planning_months, "activities": [
-            "Detailed engineering (per plant)",
-            "Permits & environmental clearances",
-            "Procurement planning & long-lead item identification",
-            "Contractor tendering and selection"
-        ]},
-        {"phase": "Procurement", "months": procurement_months, "activities": [
-            "Order long-lead equipment (EAF modules, transformers, WHR units)",
-            "Sign PPAs or short-term generation agreements if energy gap identified",
-            "Negotiate port berth windows and logistics contracts"
-        ]},
-        {"phase": "Implementation", "months": implementation_months, "activities": [
-            "Civil works & foundation",
-            "Equipment installation and electrical works",
-            "Substation & grid interconnection upgrades",
-            "Raw material handling upgrades (stockyards, conveyors)"
-        ]},
-        {"phase": "Commissioning & Training", "months": commissioning_months, "activities": [
-            "Cold commissioning, hot commissioning, ramp tests",
-            "Operator & maintenance training programs",
-            "MES & ERP go-live and data validation"
-        ]},
-        {"phase": "Stabilization & Ramp", "months": stabilization_months, "activities": [
-            "Production ramp to target rates",
-            "Performance tuning and QA sign-off",
-            "Transition to steady-state O&M"
-        ]},
-    ]
-
-    # Per-plant schedule: allocate earlier windows to plants with highest added capacity (SP1 then SP2, etc.)
+    # per-plant schedule (staggered)
     per_plant_schedule: List[Dict[str, Any]] = []
     current_offset = 0
-    # ordering by added tpa desc
     sorted_plants = sorted(per_plant_breakdown, key=lambda x: x["added_tpa"], reverse=True)
     for p in sorted_plants:
         start_month = current_offset + 1
-        plant_impl_months = max(1, int(round(implementation_months * (p["added_tpa"] / max(1, total_added_tpa)))))
-        plant_procure_months = max(1, int(round(procurement_months * (p["added_tpa"] / max(1, total_added_tpa)))))
+        share = p["added_tpa"] / max(1, total_added_tpa)
+        plant_procure = max(1, int(round(procurement_months * share)))
+        plant_impl = max(1, int(round(implementation_months * share)))
+        plant_comm = max(1, int(round(commissioning_months * share)))
         p_schedule = {
             "plant": p["name"],
             "start_month_planning": start_month,
-            "procurement_window_months": plant_procure_months,
-            "implementation_window_months": plant_impl_months,
-            "commissioning_window_months": max(1, int(round(commissioning_months * (p["added_tpa"] / max(1, total_added_tpa))))),
-            "expected_online_month": start_month + plant_procure_months + plant_impl_months + max(1, int(round(commissioning_months * (p["added_tpa"] / max(1, total_added_tpa)))))
+            "procurement_window_months": plant_procure,
+            "implementation_window_months": plant_impl,
+            "commissioning_window_months": plant_comm,
+            "expected_online_month": start_month + plant_procure + plant_impl + plant_comm
         }
         per_plant_schedule.append(p_schedule)
-        # stagger next plant by a fraction to avoid concurrency on ports/grids
-        current_offset += max(0, int(round(plant_impl_months * 0.5)))
+        current_offset += max(0, int(round(plant_impl * 0.5)))
 
-    # Rationale bullets (concise)
-    rationale_bullets: List[str] = []
-    rationale_bullets.append("Prioritized automation and EAF/BOF interface upgrades to deliver fastest time-to-market and best incremental margin per USD spent.")
-    rationale_bullets.append("Raw material handling and port coordination minimize logistics lead time and protect commercial cargo SLAs.")
-    rationale_bullets.append("Waste-heat recovery and substation upgrades reduce operating cost and lower payback time via energy savings.")
-    rationale_bullets.append("Hiring plan ensures safe commissioning and preserves OEE during ramp-up; project managers compress schedule risk.")
-    rationale_bullets.append("Phased per-plant schedule staggers heavy resource use (berths, grid connections) to avoid simultaneous strain on ports and energy supply.")
-    rationale_bullets.append("Operational Flow document referenced for process-level checks.")
-
-    # Resource feasibility checks & adjustments
+    # resource checks
     resource_checks = {
         "ports": {
             "total_port_capacity_tpa": total_port_capacity,
@@ -421,15 +357,15 @@ def run_simulation(query: str) -> Dict[str, Any]:
         }
     }
 
-    # Add resource deficiency messages into recommendations if any
+    # append actions for shortages
     if energy_required_mw > available_energy_for_steel + 1e-6:
         shortage = energy_required_mw - available_energy_for_steel
-        actions.append(f"Energy shortfall detected: need additional ~{shortage:.1f} MW — recommend short-term PPA or rental generation as mitigation.")
+        actions.append(f"Energy shortfall (~{shortage:.1f} MW): arrange PPA, rental gen, or stage works.")
     if port_throughput_required_tpa > available_port_for_steel + 1e-6:
         pshort = port_throughput_required_tpa - available_port_for_steel
-        actions.append(f"Port throughput shortfall: need additional {pshort:,} tpa — recommend staged shipments, 3PL contracts, or temporary berth leasing.")
+        actions.append(f"Port shortfall ({pshort:,} tpa): stage shipments, engage 3PL, lease berth slots.")
 
-    # Metrics summary
+    # metrics & checks for final notes
     metrics = {
         "added_tpa": int(total_added_tpa),
         "added_mtpa": round(total_added_mtpa, 3),
@@ -439,55 +375,59 @@ def run_simulation(query: str) -> Dict[str, Any]:
         "port_throughput_required_tpa": int(port_throughput_required_tpa),
     }
 
-    # Final confidence and notes
+    # rationale bullets
+    rationale_bullets: List[str] = [
+        "Automation & MES chosen to reduce operational losses and accelerate reliable ramp-up.",
+        "EAF/BOF interface or modular EAF selected for speed of capacity addition vs greenfield.",
+        "WHR and substation upgrades to reduce operating cost and shorten payback.",
+        "Port and logistics actions protect commercial cargo SLA while enabling project shipments.",
+        "Staged per-plant schedule reduces simultaneous demand on ports and grid, lowering risk."
+    ]
+
+    # final confidence & notes
     confidence = START_CONFIDENCE
     notes_recommendations: List[str] = []
-    # Financial check
     if aggregated_payback_months is None:
-        notes_recommendations.append("Unable to compute aggregated payback; check margin assumptions.")
+        notes_recommendations.append("Unable to compute aggregated payback (zero/negative margin).")
         confidence -= 20
     else:
         if aggregated_payback_months <= parsed.get("max_payback_months", ENFORCED_PAYBACK_MONTHS):
             notes_recommendations.append(f"Aggregated payback {aggregated_payback_months:.1f} months meets target.")
         else:
-            notes_recommendations.append(f"Aggregated payback {aggregated_payback_months:.1f} months exceeds target; consider staged rollout or lower-CAPEX tech.")
+            notes_recommendations.append(f"Aggregated payback {aggregated_payback_months:.1f} months exceeds target; consider staged or lower-CAPEX tech.")
             confidence -= 20
 
-    # Resource impacts
     if energy_required_mw > available_energy_for_steel + 1e-6:
-        notes_recommendations.append("Energy resource shortfall present — mitigation required before full-rate commissioning.")
+        notes_recommendations.append("Energy resource shortfall present — mitigation required.")
         confidence -= 15
     else:
-        notes_recommendations.append("Energy resources adequate given spare + group allocation.")
+        notes_recommendations.append("Energy resources adequate for upgrade (spare + group allocation).")
 
     if port_throughput_required_tpa > available_port_for_steel + 1e-6:
         notes_recommendations.append("Port throughput shortfall present — logistics mitigation required.")
         confidence -= 10
     else:
-        notes_recommendations.append("Port capacity adequate given spare + group allocation.")
+        notes_recommendations.append("Ports capacity adequate (spare + group allocation).")
 
     if parsed.get("target_months", 15) < total_estimated_months:
-        notes_recommendations.append(f"Schedule risk: target {parsed.get('target_months')} months vs estimated {total_estimated_months} months.")
+        notes_recommendations.append(f"Schedule risk: target {parsed.get('target_months')} months vs estimate {total_estimated_months} months.")
         confidence -= 10
     else:
-        notes_recommendations.append(f"Schedule appears feasible: ~{total_estimated_months} months.")
+        notes_recommendations.append(f"Schedule estimate: ~{total_estimated_months} months.")
 
     confidence = max(confidence, MIN_CONFIDENCE)
 
-    # Build output structures
-    recommendation = _build_recommendation(
-        headline="Proposed Upgrade: +2.0 MTPA steel capacity across Group X Steel Division",
-        metrics={"summary": f"Add {round(total_added_mtpa,3)} MTPA across four steel plants.", **metrics},
-        actions=actions,
-        hiring={"aggregate": aggregated_hiring, "per_plant": {p["name"]: p["hiring_estimate"] for p in per_plant_breakdown}},
-        capex_breakdown=capex_breakdown,
-        processes=processes,
-        distribution=[{"plant": p["name"], "added_mtpa": p["added_mtpa"], "capex_usd": p["capex_usd"]} for p in per_plant_breakdown]
-    )
-
-    roadmap = _build_roadmap(timeline, phases=phases, per_plant_schedule=per_plant_schedule)
-
-    rationale = _build_rationale(rationale_bullets, assumptions={
+    # build final structures
+    recommendation = _build_recommendation_section("Proposed Upgrade: +2.0 MTPA steel capacity across Group X Steel Division", total_added_tpa, total_investment, aggregated_payback_months, energy_required_mw, confidence)
+    roadmap = _build_roadmap_section({
+        "planning_months": planning_months,
+        "procurement_months": procurement_months,
+        "implementation_months": implementation_months,
+        "commissioning_months": commissioning_months,
+        "stabilization_months": stabilization_months,
+        "total_estimated_months": total_estimated_months
+    }, per_plant_breakdown)
+    rationale = _build_rationale_section(rationale_bullets, {
         "capex_per_mtpa_usd": CAPEX_PER_MTPA_USD,
         "margin_per_ton_usd": MARGIN_PER_TON_USD,
         "mw_per_mtpa": MW_PER_MTPA,
@@ -496,10 +436,17 @@ def run_simulation(query: str) -> Dict[str, Any]:
         "port_group_share_of_used": PORT_GROUP_SHARE_OF_USED,
         "energy_utilization": ENERGY_UTILIZATION,
         "energy_grid_share_of_used": ENERGY_GRID_SHARE_OF_USED,
-    }, references={"operational_flow_doc": OPERATIONAL_FLOW_DOC, "concept_pdf": CONCEPT_PDF})
+    }, debug_lines)
 
     result: Dict[str, Any] = {
-        "recommendation": recommendation,
+        "recommendation": {
+            **recommendation,
+            "actions": actions,
+            "capex_breakdown": capex_breakdown,
+            "hiring_plan": {"aggregate": aggregated_hiring, "per_plant": {p["name"]: p["hiring_estimate"] for p in per_plant_breakdown}},
+            "process_changes": processes,
+            "distribution": [{"plant": p["name"], "added_mtpa": p["added_mtpa"], "capex_usd": p["capex_usd"]} for p in per_plant_breakdown]
+        },
         "roadmap": roadmap,
         "rationale": rationale,
         "expected_increase_tpa": int(total_added_tpa),
@@ -511,21 +458,19 @@ def run_simulation(query: str) -> Dict[str, Any]:
         "em_summaries": {
             "steel_info": {"num_plants": len(per_plant_breakdown), "plant_distribution": per_plant_breakdown},
             "ports_info": {"total_port_capacity_tpa": total_port_capacity, "ports": ports_list},
-            "energy_info": {"total_energy_capacity_mw": total_energy_capacity, "plants": energy_list},
+            "energy_info": {"total_energy_capacity_mw": total_energy_capacity, "plants": energy_list}
         },
         "infrastructure_analysis": resource_checks,
-        "implementation_timeline": timeline,
-        "notes": {
-            "assumptions": {
-                "capex_per_mtpa_usd": CAPEX_PER_MTPA_USD,
-                "margin_per_ton_usd": MARGIN_PER_TON_USD,
-                "mw_per_mtpa": MW_PER_MTPA,
-            },
-            "recommendations": notes_recommendations,
-            "debug": debug_lines,
-        }
+        "implementation_timeline": {"planning_months": planning_months, "procurement_months": procurement_months, "implementation_months": implementation_months, "commissioning_months": commissioning_months, "stabilization_months": stabilization_months},
+        "notes": {"assumptions": {"capex_per_mtpa_usd": CAPEX_PER_MTPA_USD, "margin_per_ton_usd": MARGIN_PER_TON_USD, "mw_per_mtpa": MW_PER_MTPA}, "recommendations": notes_recommendations, "debug": debug_lines}
     }
 
     return result
 
-# End of file
+# CLI quick test
+if __name__ == "__main__":
+    q = ("Increase total steel production by 2 MTPA within the next 15 months, "
+         "allocating the capacity increase appropriately across all steel plants. "
+         "Ensure that the investments required for this upgrade can be recovered within a payback period of less than 3 years.")
+    import pprint
+    pprint.pprint(run_simulation(q))
