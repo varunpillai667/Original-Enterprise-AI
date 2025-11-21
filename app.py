@@ -44,46 +44,6 @@ Explain how a multi-layer enterprise system could respond to strategic questions
 st.markdown("---")
 
 # -------------------------
-# CSS: prevent awkward wrapping & align roadmap columns
-# -------------------------
-st.markdown(
-    """
-<style>
-/* Prevent breaking long phase names and keep consistent spacing */
-.phase-col {
-  padding: 8px 12px;
-  min-width: 180px;
-  box-sizing: border-box;
-}
-.phase-title {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-weight: 700;
-  margin-bottom: 6px;
-  font-size: 16px;
-}
-.phase-item {
-  margin: 6px 0;
-  line-height: 1.25;
-  word-break: normal;
-  white-space: normal;
-}
-.phase-notes {
-  color: #444;
-  font-size: 13px;
-  line-height: 1.2;
-}
-.metric-row .stMetricValue, .metric-row .stMetricLabel {
-  /* Slight spacing for metrics rows */
-  padding: 4px 6px;
-}
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
-# -------------------------
 # Helpers (display formatting)
 # -------------------------
 def parse_hiring(x: Any) -> Dict[str, int]:
@@ -176,21 +136,33 @@ if st.button("Run Simulation"):
         st.subheader("Roadmap (Phases)")
         phases = roadmap.get("phases", [])
         if phases:
-            # use columns; apply the CSS class for each column content to avoid wrapping issues
-            cols_ph = st.columns(len(phases))
-            for i, ph in enumerate(phases):
-                with cols_ph[i]:
-                    # wrap content in a container to apply our CSS classes
-                    phase_html = f"""
-                    <div class="phase-col">
-                      <div class="phase-title">{ph.get('phase','Phase')}</div>
-                      <div class="phase-item"><strong>Duration:</strong> {ph.get('months','—')} months</div>
-                    """
-                    notes = ph.get("notes")
-                    if notes:
-                        phase_html += f'<div class="phase-notes">{notes}</div>'
-                    phase_html += "</div>"
-                    st.markdown(phase_html, unsafe_allow_html=True)
+            # --- Fixed, clean column rendering to avoid wrapping/overlap ---
+            cols = st.columns(len(phases))
+            for col, ph in zip(cols, phases):
+                with col:
+                    st.markdown(
+                        f"""
+                        <div style="
+                            padding: 10px 6px;
+                            min-width: 180px;
+                            box-sizing: border-box;
+                            line-height: 1.3;
+                        ">
+                            <div style="font-weight:700; font-size:16px; margin-bottom:6px; white-space:nowrap;">
+                                {ph.get('phase','')}
+                            </div>
+
+                            <div style="margin-bottom:6px;">
+                                <strong>Duration:</strong> {ph.get('months','—')} months
+                            </div>
+
+                            <div style="font-size:13px; color:#444; margin-top:4px; white-space:normal;">
+                                {ph.get('notes','')}
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
         else:
             st.write("No roadmap phases available.")
 
@@ -316,18 +288,31 @@ if st.button("Run Simulation"):
         phases = roadmap.get("phases", [])
         if phases:
             cols_ph = st.columns(len(phases))
-            for i, ph in enumerate(phases):
-                with cols_ph[i]:
-                    phase_html = f"""
-                    <div class="phase-col">
-                      <div class="phase-title">{ph.get('phase','Phase')}</div>
-                      <div class="phase-item"><strong>Duration:</strong> {ph.get('months','—')} months</div>
-                    """
-                    notes = ph.get("notes")
-                    if notes:
-                        phase_html += f'<div class="phase-notes">{notes}</div>'
-                    phase_html += "</div>"
-                    st.markdown(phase_html, unsafe_allow_html=True)
+            for col, ph in zip(cols_ph, phases):
+                with col:
+                    st.markdown(
+                        f"""
+                        <div style="
+                            padding: 10px 6px;
+                            min-width: 180px;
+                            box-sizing: border-box;
+                            line-height: 1.3;
+                        ">
+                            <div style="font-weight:700; font-size:16px; margin-bottom:6px; white-space:nowrap;">
+                                {ph.get('phase','')}
+                            </div>
+
+                            <div style="margin-bottom:6px;">
+                                <strong>Duration:</strong> {ph.get('months','—')} months
+                            </div>
+
+                            <div style="font-size:13px; color:#444; margin-top:4px; white-space:normal;">
+                                {ph.get('notes','')}
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
         else:
             st.write("No roadmap phases available.")
 
