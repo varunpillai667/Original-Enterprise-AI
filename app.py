@@ -1,6 +1,6 @@
-# ------------------------------
+# =========================
 # File: app.py
-# ------------------------------
+# =========================
 import streamlit as st
 import pandas as pd
 import json
@@ -10,9 +10,6 @@ from decision_engine import run_simulation
 st.set_page_config(page_title="Original Enterprise AI Concept Prototype", layout="wide")
 st.title("Original Enterprise AI Concept Prototype")
 
-# ---------------------------------------------------------
-# FULL INTRO (RESTORED EXACTLY)
-# ---------------------------------------------------------
 st.markdown(
     """
 ### Introduction
@@ -45,9 +42,6 @@ Explain how a multi-layer enterprise system could respond to strategic questions
 
 st.markdown("---")
 
-# -------------------------
-# Helpers (display formatting)
-# -------------------------
 def parse_hiring(x: Any) -> Dict[str, int]:
     base = {"engineers": 0, "maintenance": 0, "operators": 0, "project_managers": 0}
     if isinstance(x, dict):
@@ -77,9 +71,6 @@ def pretty_infra(data: Dict[str, Any]) -> Dict[str, Any]:
             out[section] = vals
     return out
 
-# -------------------------
-# Strategic Query input
-# -------------------------
 st.subheader("Strategic Query")
 query = st.text_area(
     "Enter high-level strategic query",
@@ -92,9 +83,6 @@ query = st.text_area(
     height=140,
 )
 
-# -------------------------
-# Run Simulation button
-# -------------------------
 if st.button("Run Simulation"):
 
     if not query.strip():
@@ -108,61 +96,61 @@ if st.button("Run Simulation"):
             st.error(f"Simulation error: {exc}")
             st.stop()
 
-    # -------------------------
-    # Recommendation (left) and Roadmap (right) — horizontal
-    # -------------------------
     rec = result.get("recommendation", {})
     roadmap = result.get("roadmap", {})
 
-    st.header("Recommendation & Roadmap")
-    col_rec, col_road = st.columns([2, 1])
+    # Recommendation — full width
+    st.header("Recommendation")
+    st.subheader(rec.get("headline", "Proposed action"))
+    if rec.get("summary"):
+        st.write(rec["summary"])
 
-    with col_rec:
-        st.subheader("Recommendation (Executive)")
-        st.markdown(f"**{rec.get('headline','')}**")
-        if rec.get("summary"):
-            st.write(rec["summary"])
-        metrics = rec.get("metrics", {})
-        metric_cols = st.columns(4)
-        metric_cols[0].metric("Added (MTPA)", metrics.get("added_mtpa", "—"))
-        metric_cols[1].metric("Investment (USD)", f"${metrics.get('investment_usd',0):,}")
-        metric_cols[2].metric("Est. Payback (months)", metrics.get("estimated_payback_months","—"))
-        metric_cols[3].metric("Confidence", f"{result.get('confidence_pct','—')}%")
+    metrics = rec.get("metrics", {})
+    mcols = st.columns(4)
+    mcols[0].metric("Added (MTPA)", metrics.get("added_mtpa", "—"))
+    mcols[1].metric("Investment (USD)", f"${metrics.get('investment_usd',0):,}")
+    mcols[2].metric("Est. Payback (months)", metrics.get("estimated_payback_months","—"))
+    mcols[3].metric("Confidence", f"{result.get('confidence_pct','—')}%")
 
-        if rec.get("actions"):
-            st.markdown("**Top Actions (prioritized)**")
-            for a in rec.get("actions", [])[:6]:
-                st.write(f"- {a}")
+    if rec.get("actions"):
+        st.subheader("Key recommended actions")
+        for a in rec.get("actions", [])[:8]:
+            st.write(f"- {a}")
 
-    with col_road:
-        st.subheader("Roadmap (Phases)")
-        phases = roadmap.get("phases", [])
-        if phases:
-            # --- Correct per-column HTML rendering to avoid escaping/wrapping ---
-            cols = st.columns(len(phases))
-            for col, ph in zip(cols, phases):
-                html = f"""
-                <div style="padding:12px; min-width:180px; white-space:normal; line-height:1.4; box-sizing:border-box;">
-                    <div style="font-weight:700; font-size:16px; margin-bottom:6px; white-space:nowrap;">
-                        {ph.get('phase','')}
-                    </div>
-                    <div style="margin-bottom:6px;">
-                        <strong>Duration:</strong> {ph.get('months','—')} months
-                    </div>
-                    <div style="font-size:13px; color:#444;">
-                        {ph.get('notes','')}
-                    </div>
-                </div>
-                """
-                col.markdown(html, unsafe_allow_html=True)
-        else:
-            st.write("No roadmap phases available.")
+    debug_lines = result.get("notes", {}).get("debug", [])
+    if debug_lines:
+        with st.expander("Debug / data-loading notes"):
+            for d in debug_lines:
+                st.write(f"- {d}")
 
     st.markdown("---")
 
-    # -------------------------
-    # Per-Plant Schedule (full width)
-    # -------------------------
+    # Roadmap — placed BELOW Recommendation (clean columns)
+    st.header("Roadmap (Phases)")
+    phases = roadmap.get("phases", [])
+    if phases:
+        cols = st.columns(len(phases))
+        for col, ph in zip(cols, phases):
+            html = f"""
+            <div style="padding:14px; min-width:200px; box-sizing:border-box; border-radius:6px;">
+                <div style="font-weight:700; font-size:15px; margin-bottom:6px; white-space:nowrap;">
+                    {ph.get('phase','')}
+                </div>
+                <div style="margin-bottom:6px;">
+                    <strong>Duration:</strong> {ph.get('months','—')} months
+                </div>
+                <div style="font-size:13px; color:#444; white-space:normal;">
+                    {ph.get('notes','')}
+                </div>
+            </div>
+            """
+            col.markdown(html, unsafe_allow_html=True)
+    else:
+        st.write("No roadmap phases available.")
+
+    st.markdown("---")
+
+    # Per-Plant Schedule
     st.subheader("Per-Plant Schedule")
     p_sched = roadmap.get("per_plant_schedule", [])
     if p_sched:
@@ -172,19 +160,17 @@ if st.button("Run Simulation"):
 
     st.markdown("---")
 
-    # -------------------------
-    # Decision Rationale (left) and Per-Plant Financials (right) — horizontal
-    # -------------------------
+    # Decision Rationale & Financials (side-by-side)
     st.header("Decision Rationale & Financials")
     col_rat, col_fin = st.columns([2, 1])
 
     with col_rat:
-        st.subheader("Why these recommendations? (Executive)")
+        st.subheader("Decision Rationale")
         for b in result.get("rationale", {}).get("bullets", []):
             st.write(f"- {b}")
 
     with col_fin:
-        st.subheader("Per-Plant Financials (top-level)")
+        st.subheader("Per-Plant Financials")
         plant_dist = result.get("em_summaries", {}).get("steel_info", {}).get("plant_distribution", [])
         if plant_dist:
             df = pd.DataFrame(plant_dist)
@@ -196,22 +182,20 @@ if st.button("Run Simulation"):
                 df["capex_usd"] = df["capex_usd"].apply(lambda x: f"${x:,}")
             if "annual_margin_usd" in df.columns:
                 df["annual_margin_usd"] = df["annual_margin_usd"].apply(lambda x: f"${x:,}")
-            st.table(df[ [c for c in df.columns if c in ["name","current_capacity_tpa","added_mtpa","capex_usd","annual_margin_usd","payback_months"] ] ])
+            st.table(df[[c for c in df.columns if c in ["name","current_capacity_tpa","added_mtpa","capex_usd","annual_margin_usd","payback_months"]]])
         else:
             st.write("No plant distribution available.")
 
     st.markdown("---")
 
-    # -------------------------
-    # Infrastructure Analysis (Ports | Energy) side-by-side
-    # -------------------------
+    # Infrastructure Analysis (Ports & Energy) side-by-side
     st.header("Infrastructure Analysis")
     infra = pretty_infra(result.get("infrastructure_analysis", {}))
     ports = infra.get("ports", {})
     energy = infra.get("energy", {})
 
-    col_ports, col_energy = st.columns(2)
-    with col_ports:
+    c1, c2 = st.columns(2)
+    with c1:
         st.subheader("Ports")
         if ports:
             preferred_order = [
@@ -232,7 +216,7 @@ if st.button("Run Simulation"):
         else:
             st.write("No port data.")
 
-    with col_energy:
+    with c2:
         st.subheader("Energy")
         if energy:
             preferred_energy_order = [
@@ -255,26 +239,14 @@ if st.button("Run Simulation"):
 
     st.markdown("---")
 
-    # -------------------------
-    # Full result (human readable) — side-by-side infra summary inside
-    # -------------------------
+    # Full result expander
     with st.expander("Full result (raw) — human readable"):
-        # Recommendation + Metrics horizontally
-        rec = result.get("recommendation", {})
-        metrics = rec.get("metrics", {})
-        rcol1, rcol2 = st.columns([2, 1])
-        with rcol1:
-            st.markdown("### Recommendation")
-            st.write(f"**{rec.get('headline','')}**")
-            st.write(rec.get("summary",""))
-            st.markdown("**Actions**")
-            for a in rec.get("actions", []):
-                st.write(f"- {a}")
-        with rcol2:
-            st.markdown("### Key Metrics")
-            for k, v in metrics.items():
-                st.write(f"- **{k.replace('_',' ').title()}:** {v}")
-
+        st.markdown("### Recommendation")
+        st.write(f"**{rec.get('headline','')}**")
+        st.write(rec.get("summary",""))
+        st.markdown("### Metrics")
+        for k, v in rec.get("metrics", {}).items():
+            st.write(f"- **{k.replace('_',' ').title()}:** {v}")
         st.markdown("---")
         st.markdown("### Roadmap (Phases)")
         phases = roadmap.get("phases", [])
@@ -282,16 +254,10 @@ if st.button("Run Simulation"):
             cols_ph = st.columns(len(phases))
             for col, ph in zip(cols_ph, phases):
                 html = f"""
-                <div style="padding:12px; min-width:180px; white-space:normal; line-height:1.4; box-sizing:border-box;">
-                    <div style="font-weight:700; font-size:16px; margin-bottom:6px; white-space:nowrap;">
-                        {ph.get('phase','')}
-                    </div>
-                    <div style="margin-bottom:6px;">
-                        <strong>Duration:</strong> {ph.get('months','—')} months
-                    </div>
-                    <div style="font-size:13px; color:#444;">
-                        {ph.get('notes','')}
-                    </div>
+                <div style="padding:12px; min-width:180px; box-sizing:border-box;">
+                    <div style="font-weight:700; font-size:15px; margin-bottom:6px; white-space:nowrap;">{ph.get('phase','')}</div>
+                    <div style="margin-bottom:6px;"><strong>Duration:</strong> {ph.get('months','—')} months</div>
+                    <div style="font-size:13px; color:#444;">{ph.get('notes','')}</div>
                 </div>
                 """
                 col.markdown(html, unsafe_allow_html=True)
