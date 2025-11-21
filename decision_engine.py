@@ -1,18 +1,21 @@
 # decision_engine.py
 """
-Decision Engine for Original Enterprise AI (updated)
+Decision engine (updated for the steel +2 MTPA strategic query)
 
-This module provides a focused `run_simulation(query: str) -> dict` function
-that understands the new strategic constraint:
-  - Increase total steel production by X MTPA in Y months
-  - Payback must be less than Z months
+Produces clear assumptions and a polished, actionable simulation result.
+Reads mock_data.json from the same folder as this file.
 
-It parses the query, loads local mock data (mock_data.json in same folder),
-calls enterprise-evaluator helpers when available, computes a capacity
-distribution across steel plants, estimates CAPEX and ROI, checks feasibility,
-and returns a structured result suitable for the Streamlit UI.
-
-Assumptions and configurable parameters are declared at the top of the file.
+Key outputs (all returned in the dict):
+- recommended_plant (string)
+- expected_increase_tpa (int)
+- investment_usd (int)
+- roi_months (float or None)
+- energy_required_mw (float)
+- confidence_pct (int)
+- em_summaries -> steel_info contains per-plant breakdown with capex & payback
+- infrastructure_analysis (list)
+- implementation_timeline
+- notes.assumptions and notes.recommendations
 """
 
 from __future__ import annotations
@@ -20,57 +23,52 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Optional
 
-# Try to import enterprise-level evaluators; if missing, we will still run.
+# Try importing enterprise evaluators (best-effort)
 try:
-    from enterprise_manager import evaluate_steel, evaluate_ports, evaluate_energy
+    from enterprise_manager import evaluate_steel, evaluate_ports, evaluate_energy  # type: ignore
 except Exception:
     evaluate_steel = None  # type: ignore
     evaluate_ports = None  # type: ignore
     evaluate_energy = None  # type: ignore
 
-# Configurable assumptions (tweak these to match domain knowledge)
-CAPEX_PER_MTPA_USD = 600_000_000  # USD per 1 MTPA of added annual capacity (example)
-MARGIN_PER_TON_USD = 100  # incremental gross margin per ton (USD/ton)
-MW_PER_MTPA = 2.5  # MW required per 1 MTPA incremental capacity (example)
-DEFAULT_CONFIDENCE_PCT = 65
+# -------------------------
+# Configurable assumptions
+# (Tweak these if you want different financials)
+# -------------------------
+CAPEX_PER_MTPA_USD = 450_000_000  # USD per 1 MTPA added capacity (conservative mid-range)
+MARGIN_PER_TON_USD = 120  # USD additional gross margin per tonne of incremental output
+MW_PER_MTPA = 2.2  # MW required per 1 MTPA incremental capacity
+DEFAULT_CONFIDENCE_PCT = 75
 
-# File path to mock data (located next to this file)
+# Path to mock data (next to this file)
 MOCK_PATH = Path(__file__).parent / "mock_data.json"
 
 
 # -------------------------
-# Parsing utilities
+# Helpers: parse query
 # -------------------------
 def _parse_query_for_constraints(query: str) -> Dict[str, int]:
-    """
-    Parse the strategic query string for:
-      - target_mtpa (float, in MTPA)
-      - target_months (int)
-      - max_payback_months (int)
-
-    Returns defaults if not found:
-      - target_mtpa = 2
-      - target_months = 15
-      - max_payback_months = 36 (3 years)
-    """
-    q = query.lower()
+    q = (query or "").lower()
     result = {"target_mtpa": 2.0, "target_months": 15, "max_payback_months": 36}
 
-    # find MTPA or mtpa
-    m = re.search(r'(\d+(\.\d+)?)\s*\s*m?t?p?a\b', q)
+    # find MTPA number (e.g., "2 MTPA")
+    m = re.search(r'(\d+(\.\d+)?)\s*m\s*t\s*p\s*a|\b(\d+(\.\d+)?)\s*mtpa\b', q.replace(" ", ""))
+    if not m:
+        # fallback simpler pattern: "<number> mtpa" or "<number> mpta"
+        m = re.search(r'(\d+(\.\d+)?)\s*mtpa|\b(\d+(\.\d+)?)\s*m?t?p?a\b', q)
     if m:
-        try:
-            val = float(m.group(1))
-            # If the phrase contains "steel production by 2 MTPA" this is fine.
-            result["target_mtpa"] = val
-        except Exception:
-            pass
+        # pick first numeric group that is not None
+        for g in m.groups():
+            if g:
+                try:
+                    result["target_mtpa"] = float(g)
+                    break
+                except Exception:
+                    pass
 
-    # alternative: look for "2 mtpa" or "2 mpa" not reliable; fallback handled above
-
-    # find months timeframe like "within the next 15 months" or "in 15 months"
+    # timeframe in months (e.g., "15 months")
     m2 = re.search(r'(\d{1,3})\s*(?:months|month)\b', q)
     if m2:
         try:
@@ -78,37 +76,41 @@ def _parse_query_for_constraints(query: str) -> Dict[str, int]:
         except Exception:
             pass
 
-    # find payback constraint e.g. "less than 3 years" or "< 3 years"
-    # convert years to months if found
+    # payback: "less than 3 years" or "payback < 3 years" or "within 36 months"
     m3 = re.search(r'payback.*?(?:less than|<|within)\s*(\d+)\s*(years|year)\b', q)
     if m3:
-        years = int(m3.group(1))
-        result["max_payback_months"] = years * 12
+        try:
+            years = int(m3.group(1))
+            result["max_payback_months"] = years * 12
+        except Exception:
+            pass
     else:
         m4 = re.search(r'payback.*?(?:less than|<|within)\s*(\d{1,3})\s*(months|month)\b', q)
         if m4:
-            result["max_payback_months"] = int(m4.group(1))
+            try:
+                result["max_payback_months"] = int(m4.group(1))
+            except Exception:
+                pass
 
     return result
 
 
 # -------------------------
-# Data loading
+# Helpers: load data
 # -------------------------
 def _load_mock_data() -> Dict[str, Any]:
-    """Load mock_data.json from same directory as this file; return dict."""
     try:
         with open(MOCK_PATH, "r", encoding="utf-8") as fh:
             return json.load(fh)
-    except FileNotFoundError:
-        # Return minimal fallback structure
+    except Exception:
+        # sensible defaults if file not found
         return {
             "steel": {
                 "plants": [
-                    {"id": "SP1", "name": "Steel Plant 1", "current_capacity_tpa": 1_000_000},
-                    {"id": "SP2", "name": "Steel Plant 2", "current_capacity_tpa": 800_000},
+                    {"id": "SP1", "name": "Steel Plant 1", "current_capacity_tpa": 1_200_000},
+                    {"id": "SP2", "name": "Steel Plant 2", "current_capacity_tpa": 900_000},
                     {"id": "SP3", "name": "Steel Plant 3", "current_capacity_tpa": 700_000},
-                    {"id": "SP4", "name": "Steel Plant 4", "current_capacity_tpa": 500_000},
+                    {"id": "SP4", "name": "Steel Plant 4", "current_capacity_tpa": 600_000},
                 ]
             },
             "ports": {"ports": [{"id": "P1"}, {"id": "P2"}, {"id": "P3"}, {"id": "P4"}]},
@@ -117,258 +119,215 @@ def _load_mock_data() -> Dict[str, Any]:
 
 
 # -------------------------
-# Business logic
+# Helpers: distribution & estimates
 # -------------------------
-def _distribute_target_among_plants(
-    plants: List[Dict[str, Any]], target_tpa: int
-) -> List[Dict[str, Any]]:
-    """
-    Distribute target_tpa (tonnes per annum) across plants.
-    Prefer proportional to current_capacity_tpa; fall back to equal split.
-    Returns list of plants with added_tpa and new_capacity_tpa.
-    """
-    total_current = sum(p.get("current_capacity_tpa", 0) for p in plants)
-    if total_current > 0:
-        distributed = []
-        for p in plants:
-            share = p.get("current_capacity_tpa", 0) / total_current
-            added = int(round(share * target_tpa))
-            distributed.append(
-                {
-                    **p,
-                    "added_tpa": added,
-                    "new_capacity_tpa": int(p.get("current_capacity_tpa", 0) + added),
-                }
-            )
-        # Adjust rounding difference
-        diff = target_tpa - sum(p["added_tpa"] for p in distributed)
-        i = 0
-        while diff != 0:
-            distributed[i % len(distributed)]["added_tpa"] += 1 if diff > 0 else -1
-            distributed[i % len(distributed)]["new_capacity_tpa"] += 1 if diff > 0 else -1
-            diff = target_tpa - sum(p["added_tpa"] for p in distributed)
-            i += 1
-        return distributed
-    else:
-        # equal split
+def _distribute_target(plants: List[Dict[str, Any]], target_tpa: int) -> List[Dict[str, Any]]:
+    """Proportional distribution by current capacity; returns list with added_tpa & new_capacity."""
+    total = sum(p.get("current_capacity_tpa", 0) for p in plants)
+    if total <= 0:
+        # equal split if no capacity metadata
         n = max(1, len(plants))
         base = target_tpa // n
         distributed = []
         for i, p in enumerate(plants):
-            added = base + (1 if i < (target_tpa % n) else 0)
-            distributed.append(
-                {
-                    **p,
-                    "added_tpa": added,
-                    "new_capacity_tpa": int(p.get("current_capacity_tpa", 0) + added),
-                }
-            )
+            add = base + (1 if i < (target_tpa % n) else 0)
+            distributed.append({**p, "added_tpa": add, "new_capacity_tpa": p.get("current_capacity_tpa", 0) + add})
         return distributed
 
+    distributed: List[Dict[str, Any]] = []
+    for p in plants:
+        share = p.get("current_capacity_tpa", 0) / total
+        added = int(round(share * target_tpa))
+        distributed.append({**p, "added_tpa": max(0, added), "new_capacity_tpa": int(p.get("current_capacity_tpa", 0) + max(0, added))})
 
-def _estimate_investment_for_distribution(distributed: List[Dict[str, Any]]) -> float:
-    """
-    Estimate CAPEX given distribution.
-    Uses CAPEX_PER_MTPA_USD per 1 MTPA. Input added_tpa is in tonnes (not MTPA units).
-    CAPEX_PER_MTPA_USD is per 1 MTPA (1,000,000 tpa), so scale accordingly.
-    """
-    total_added_tpa = sum(p.get("added_tpa", 0) for p in distributed)
-    if total_added_tpa <= 0:
+    # correct rounding difference
+    diff = target_tpa - sum(p["added_tpa"] for p in distributed)
+    idx = 0
+    while diff != 0 and distributed:
+        distributed[idx % len(distributed)]["added_tpa"] += 1 if diff > 0 else -1
+        distributed[idx % len(distributed)]["new_capacity_tpa"] += 1 if diff > 0 else -1
+        diff = target_tpa - sum(p["added_tpa"] for p in distributed)
+        idx += 1
+
+    return distributed
+
+
+def _estimate_capex_for_added_tpa(added_tpa: int) -> float:
+    """Estimate capex (USD) for added TPA. CAPEX_PER_MTPA_USD is per 1,000,000 tpa."""
+    if added_tpa <= 0:
         return 0.0
-    total_mtpas = total_added_tpa / 1_000_000.0
-    estimated_capex = total_mtpas * CAPEX_PER_MTPA_USD
-    return estimated_capex
+    added_mtpa = added_tpa / 1_000_000.0
+    return added_mtpa * CAPEX_PER_MTPA_USD
 
 
-def _estimate_annual_margin(distributed: List[Dict[str, Any]]) -> float:
-    """Estimate additional annual gross margin from added capacity."""
-    total_added_tpa = sum(p.get("added_tpa", 0) for p in distributed)
-    if total_added_tpa <= 0:
+def _estimate_annual_margin_for_added_tpa(added_tpa: int) -> float:
+    """Estimate incremental annual gross margin from added tpa (USD)."""
+    if added_tpa <= 0:
         return 0.0
-    # margin per ton
-    return total_added_tpa * MARGIN_PER_TON_USD
+    return added_tpa * MARGIN_PER_TON_USD
 
 
-def _estimate_energy_need_mw(total_added_mtpas: float) -> float:
-    """Estimate incremental energy (MW) required for added MTPA."""
-    return total_added_mtpas * MW_PER_MTPA
+def _estimate_energy_mw_for_mtpa(mtpa: float) -> float:
+    return mtpa * MW_PER_MTPA
 
 
 # -------------------------
-# High level orchestration
+# Main orchestration
 # -------------------------
 def run_simulation(query: str) -> Dict[str, Any]:
-    """
-    Main entry: simulate response to a strategic query.
-    Returns a structured dict consumed by the Streamlit UI.
-    """
     constraints = _parse_query_for_constraints(query)
     target_mtpa = float(constraints["target_mtpa"])
     target_months = int(constraints["target_months"])
     max_payback_months = int(constraints["max_payback_months"])
 
-    # convert to tonnes per annum
     target_tpa = int(round(target_mtpa * 1_000_000))
 
-    # Load data
+    # load data
     data = _load_mock_data()
     steel_plants = data.get("steel", {}).get("plants", [])
     ports = data.get("ports", {}).get("ports", [])
     energy_plants = data.get("energy", {}).get("plants", [])
 
-    # Try to enrich via enterprise_manager evaluators (best-effort)
+    # call enterprise manager evaluators best-effort (non-fatal)
     em_summaries: Dict[str, Any] = {}
     try:
-        if evaluate_steel:
-            em_summaries["steel_info"] = evaluate_steel({"plants": steel_plants})
-        else:
-            em_summaries["steel_info"] = {
-                "num_plants": len(steel_plants),
-                "plant_summaries": steel_plants,
-            }
-    except Exception as exc:
-        em_summaries["steel_info"] = {"error": str(exc), "num_plants": len(steel_plants)}
-
+        em_summaries["steel_info"] = evaluate_steel({"plants": steel_plants}) if evaluate_steel else {"num_plants": len(steel_plants)}
+    except Exception as e:
+        em_summaries["steel_info"] = {"error": str(e), "num_plants": len(steel_plants)}
     try:
-        if evaluate_ports:
-            em_summaries["ports_info"] = evaluate_ports({"ports": ports})
-        else:
-            em_summaries["ports_info"] = {"num_ports": len(ports)}
-    except Exception as exc:
-        em_summaries["ports_info"] = {"error": str(exc), "num_ports": len(ports)}
-
+        em_summaries["ports_info"] = evaluate_ports({"ports": ports}) if evaluate_ports else {"num_ports": len(ports)}
+    except Exception as e:
+        em_summaries["ports_info"] = {"error": str(e), "num_ports": len(ports)}
     try:
-        if evaluate_energy:
-            em_summaries["energy_info"] = evaluate_energy({"energy_units_list": energy_plants})
-        else:
-            em_summaries["energy_info"] = {"num_plants": len(energy_plants)}
-    except Exception as exc:
-        em_summaries["energy_info"] = {"error": str(exc), "num_plants": len(energy_plants)}
+        em_summaries["energy_info"] = evaluate_energy({"energy_units_list": energy_plants}) if evaluate_energy else {"num_plants": len(energy_plants)}
+    except Exception as e:
+        em_summaries["energy_info"] = {"error": str(e), "num_plants": len(energy_plants)}
 
-    # Distribute target across plants
-    distributed = _distribute_target_among_plants(steel_plants, target_tpa)
+    # distribute target across steel plants
+    distributed = _distribute_target(steel_plants, target_tpa)
 
-    # Estimate CAPEX and margins
-    estimated_investment = _estimate_investment_for_distribution(distributed)
-    annual_margin = _estimate_annual_margin(distributed)
-
-    # Compute payback in months safely
-    if annual_margin <= 0:
+    # per-plant financials
+    per_plant_breakdown: List[Dict[str, Any]] = []
+    total_investment = 0.0
+    total_annual_margin = 0.0
+    for p in distributed:
+        added = int(p.get("added_tpa", 0))
+        capex = _estimate_capex_for_added_tpa(added)
+        annual_margin = _estimate_annual_margin_for_added_tpa(added)
         payback_months: Optional[float] = None
-    else:
-        payback_years = estimated_investment / annual_margin
-        payback_months = payback_years * 12
+        if annual_margin > 0:
+            payback_months = (capex / annual_margin) * 12.0
+        else:
+            payback_months = None
 
-    # Energy needed
-    total_added_mtpas = sum(p["added_tpa"] for p in distributed) / 1_000_000.0
-    energy_required_mw = _estimate_energy_need_mw(total_added_mtpas)
+        per_plant_breakdown.append({
+            "id": p.get("id"),
+            "name": p.get("name", p.get("id", "")),
+            "current_capacity_tpa": int(p.get("current_capacity_tpa", 0)),
+            "added_tpa": added,
+            "new_capacity_tpa": int(p.get("new_capacity_tpa", 0)),
+            "capex_usd": round(capex),
+            "annual_margin_usd": round(annual_margin),
+            "payback_months": None if payback_months is None else round(payback_months, 1),
+        })
+        total_investment += capex
+        total_annual_margin += annual_margin
 
-    # Basic feasibility checks & recommendations
-    infra_analysis: Dict[str, Any] = {}
-    recommendations: List[str] = []
+    # totals
+    total_added_tpa = sum(p["added_tpa"] for p in per_plant_breakdown)
+    total_added_mtpa = total_added_tpa / 1_000_000.0
+    total_energy_mw = _estimate_energy_mw_for_mtpa(total_added_mtpa)
+
+    # aggregated payback
+    aggregated_payback_months: Optional[float] = None
+    if total_annual_margin > 0:
+        aggregated_payback_months = (total_investment / total_annual_margin) * 12.0
+
+    # simple timeline model
+    # baseline months = 6 for planning & approvals + implementation proportional to scale
+    baseline_planning = 2
+    implementation_months_est = max(1, int(round(4 + total_added_mtpa * 8)))  # e.g., 0.5 MTPA -> ~8 months scaling
+    stabilization_months = max(1, int(round(implementation_months_est * 0.2)))
+    estimated_total_months = baseline_planning + implementation_months_est + stabilization_months
+
+    # feasibility checks and recommendations
+    notes_recommendations: List[str] = []
     confidence = DEFAULT_CONFIDENCE_PCT
 
-    # Payback check
-    feasible_payback = False
-    if payback_months is None:
-        recommendations.append("Unable to compute payback (zero or negative margin). Review margin assumptions.")
-        confidence -= 20
+    # payback feasibility
+    if aggregated_payback_months is None:
+        notes_recommendations.append("Unable to compute aggregated payback: zero or negative incremental margin. Review margin assumptions.")
+        confidence -= 30
     else:
-        if payback_months <= max_payback_months:
-            feasible_payback = True
-            recommendations.append(f"Estimated payback: {payback_months:.1f} months — within target.")
+        if aggregated_payback_months <= max_payback_months:
+            notes_recommendations.append(f"Aggregated estimated payback is {aggregated_payback_months:.1f} months — within target ({max_payback_months} months).")
         else:
-            recommendations.append(f"Estimated payback: {payback_months:.1f} months — exceeds target of {max_payback_months} months.")
-            # suggest alternatives to improve payback
-            recommendations.append("Consider: increasing price/margin, staging capacity addition, or partial automation to reduce CAPEX.")
+            notes_recommendations.append(f"Aggregated estimated payback is {aggregated_payback_months:.1f} months — exceeds target ({max_payback_months} months). Consider staging, price improvements, or lower-CAPEX options.")
             confidence -= 25
 
-    # Schedule check (rough)
-    # naive assumption: new capacity per plant needs ~6 months baseline + incremental 2 months per 0.5 MTPA added
-    complexity_factor_months = 6 + int(max(0, (total_added_mtpas / 0.5)) * 2)
-    if target_months < complexity_factor_months:
-        recommendations.append(
-            f"Implementation risk: target timeframe ({target_months} months) is tight vs estimated baseline {complexity_factor_months} months."
-        )
+    # schedule feasibility
+    if target_months < estimated_total_months:
+        notes_recommendations.append(f"Target timeframe ({target_months} months) is tighter than estimated schedule ({estimated_total_months} months). Consider phased rollout.")
         confidence -= 15
     else:
-        recommendations.append(f"Implementation timeframe ({target_months} months) is feasible based on high-level estimate.")
+        notes_recommendations.append(f"Target timeframe ({target_months} months) is feasible based on high-level schedule estimate ({estimated_total_months} months).")
 
-    # Port and energy analysis summary (very high-level)
-    infra_analysis["port_capacity_analysis"] = [
-        "Ports EM should validate export logistics for the incremental output.",
-        f"Estimated additional port throughput required: {total_added_mtpas:.2f} MTPA."
-    ]
-    infra_analysis["energy_capacity_analysis"] = [
-        f"Estimated incremental energy required: {energy_required_mw:.1f} MW across power plants.",
-        "Energy EM should confirm availability and marginal cost."
-    ]
-
-    # Prepare per-plant recommendation text
-    plant_recs = []
-    for p in distributed:
-        added_mtpa = p["added_tpa"] / 1_000_000.0
-        plant_recs.append(
-            f"{p.get('name', p.get('id',''))}: add {added_mtpa:.3f} MTPA (new capacity {p['new_capacity_tpa']/1_000_000.0:.3f} MTPA)"
-        )
-
-    # Implementation timeline (simple)
-    implementation_timeline = {
-        "planning_months": 2,
-        "implementation_months": max(1, int(round(target_months * 0.7))),
-        "stabilization_months": max(1, int(round(target_months * 0.2))),
+    # infrastructure checks
+    infra_analysis = {
+        "port_capacity_analysis": [
+            f"Estimated additional port throughput required: {total_added_mtpa:.2f} MTPA. Ports EM should validate container/berth constraints."
+        ],
+        "energy_capacity_analysis": [
+            f"Estimated incremental energy required: {total_energy_mw:.1f} MW. Energy EM should confirm availability and marginal cost."
+        ]
     }
 
-    # Select recommended plant/action: choose the plant with largest added_tpa (string)
-    recommended_plant_id = max(distributed, key=lambda x: x.get("added_tpa", 0)) if distributed else None
-    recommended_plant_str = (
-        f"{recommended_plant_id.get('name', recommended_plant_id.get('id'))} (add {recommended_plant_id.get('added_tpa',0)} tpa)"
-        if recommended_plant_id
-        else "—"
-    )
+    # choose recommended plant(s): priority to largest added_tpa plants (top 2)
+    sorted_by_added = sorted(per_plant_breakdown, key=lambda x: x["added_tpa"], reverse=True)
+    top_plants = [f"{p['name']} (+{p['added_tpa']:,} tpa)" for p in sorted_by_added[:2]] if sorted_by_added else []
+    recommended_str = ", ".join(top_plants) if top_plants else "—"
 
-    result = {
-        # top-level metrics
-        "recommended_plant": recommended_plant_str,
-        "expected_increase_tpa": sum(p["added_tpa"] for p in distributed),
-        "investment_usd": int(round(estimated_investment)),
-        "roi_months": None if payback_months is None else float(round(payback_months, 1)),
-        "energy_required_mw": float(round(energy_required_mw, 2)),
+    result: Dict[str, Any] = {
+        "recommended_plant": recommended_str,
+        "expected_increase_tpa": int(total_added_tpa),
+        "investment_usd": int(round(total_investment)),
+        "roi_months": None if aggregated_payback_months is None else round(aggregated_payback_months, 1),
+        "energy_required_mw": round(total_energy_mw, 2),
         "confidence_pct": max(10, min(95, confidence)),
-        # details for UI
         "em_summaries": {
             "steel_info": {
-                "num_plants": len(steel_plants),
-                "plant_recommendations": plant_recs,
-                "plant_distribution": distributed,
+                "num_plants": len(per_plant_breakdown),
+                "plant_recommendations": [f"{p['name']}: add {p['added_tpa']:,} tpa" for p in per_plant_breakdown],
+                "plant_distribution": per_plant_breakdown,
             },
             "ports_info": em_summaries.get("ports_info", {}),
             "energy_info": em_summaries.get("energy_info", {}),
         },
         "infrastructure_analysis": infra_analysis,
-        "implementation_timeline": implementation_timeline,
-        # explainability / notes
+        "implementation_timeline": {
+            "planning_months": baseline_planning,
+            "implementation_months": implementation_months_est,
+            "stabilization_months": stabilization_months,
+        },
         "notes": {
             "assumptions": {
                 "capex_per_mtpa_usd": CAPEX_PER_MTPA_USD,
                 "margin_per_ton_usd": MARGIN_PER_TON_USD,
                 "mw_per_mtpa": MW_PER_MTPA,
             },
-            "recommendations": recommendations,
+            "recommendations": notes_recommendations,
         },
     }
 
     return result
 
 
-# For quick CLI debugging
+# Quick CLI for debugging
 if __name__ == "__main__":
-    test_query = (
+    q = (
         "Increase total steel production by 2 MTPA within the next 15 months, "
         "allocating the capacity increase appropriately across all steel plants. "
         "Ensure that the investments required for this upgrade can be recovered within a payback period of less than 3 years."
     )
     import pprint
-
-    r = run_simulation(test_query)
-    pprint.pprint(r)
+    pprint.pprint(run_simulation(q))
