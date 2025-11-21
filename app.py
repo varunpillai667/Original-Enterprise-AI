@@ -63,14 +63,25 @@ def nice_number(v: Any):
     if isinstance(v, int):
         return f"{v:,}"
     if isinstance(v, float):
+        # keep two decimals for floats
         return round(v, 2)
     return v
 
 def pretty_infra(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Return a version of infrastructure numbers formatted for display.
+    (Numbers are rounded / humanized; structure left intact.)
+    """
     out = {}
     for section, vals in (data or {}).items():
         if isinstance(vals, dict):
-            out[section] = {k: nice_number(v) for k, v in vals.items()}
+            out[section] = {}
+            for k, v in vals.items():
+                # if nested dict (older variants), format inner values too
+                if isinstance(v, dict):
+                    out[section][k] = {kk: nice_number(vv) for kk, vv in v.items()}
+                else:
+                    out[section][k] = nice_number(v)
         else:
             out[section] = vals
     return out
@@ -237,12 +248,41 @@ if st.button("Run Simulation"):
     st.markdown("---")
 
     # ---------------------------------------------------------
-    # INFRASTRUCTURE (cleaned view)
+    # INFRASTRUCTURE (clean, non-JSON view)
     # ---------------------------------------------------------
     st.subheader("Infrastructure Analysis (Ports & Energy)")
 
     infra = pretty_infra(result.get("infrastructure_analysis", {}))
-    st.json(infra)
+
+    # PORTS
+    ports = infra.get("ports", {})
+    if ports:
+        st.markdown("### Ports")
+        # order keys for nicer presentation if present
+        preferred_order = ["total_port_capacity_tpa", "used_port_tpa", "group_port_share_tpa", "spare_port_tpa", "available_port_for_steel_tpa", "port_throughput_required_tpa"]
+        for key in preferred_order:
+            if key in ports:
+                label = key.replace("_", " ").title()
+                st.write(f"- **{label}:** {ports[key]}")
+        # write remaining keys if any
+        for k, v in ports.items():
+            if k not in preferred_order:
+                label = k.replace("_", " ").title()
+                st.write(f"- **{label}:** {v}")
+
+    # ENERGY
+    energy = infra.get("energy", {})
+    if energy:
+        st.markdown("### Energy")
+        preferred_energy_order = ["total_energy_capacity_mw", "used_energy_mw", "group_energy_share_mw", "spare_energy_mw", "available_energy_for_steel_mw", "energy_required_mw"]
+        for key in preferred_energy_order:
+            if key in energy:
+                label = key.replace("_", " ").title()
+                st.write(f"- **{label}:** {energy[key]}")
+        for k, v in energy.items():
+            if k not in preferred_energy_order:
+                label = k.replace("_", " ").title()
+                st.write(f"- **{label}:** {v}")
 
     st.markdown("---")
 
