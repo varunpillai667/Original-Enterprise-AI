@@ -1,6 +1,4 @@
-# File: app.py
-# Replace your existing app.py with this file.
-
+# app.py
 import streamlit as st
 import pandas as pd
 import json
@@ -10,7 +8,7 @@ from decision_engine import run_simulation
 st.set_page_config(page_title="Original Enterprise AI Concept Prototype", layout="wide")
 st.title("Original Enterprise AI Concept Prototype")
 
-# INTRO (kept)
+# Intro
 st.markdown(
     """
 ### Introduction
@@ -22,7 +20,6 @@ All simulation results in this prototype are based on **assumed, simplified data
 LOCAL Nodes -> Enterprise Managers (EMs) -> Group Manager.
 """
 )
-
 st.markdown("---")
 
 # helpers
@@ -43,7 +40,7 @@ def nice_number(v: Any):
     if isinstance(v, int):
         return f"{v:,}"
     if isinstance(v, float):
-        return round(v, 2)
+        return round(v,2)
     return v
 
 def pretty_infra(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -55,7 +52,7 @@ def pretty_infra(data: Dict[str, Any]) -> Dict[str, Any]:
             out[section] = vals
     return out
 
-# Query input
+# Query
 st.subheader("Strategic Query")
 query = st.text_area("Enter strategic query", value=("Increase total steel production by 2 MTPA within the next 15 months, allocating appropriately and ensuring payback under 3 years."), height=140)
 
@@ -98,31 +95,36 @@ if st.button("Run Simulation"):
 
     st.markdown("---")
 
-    # Roadmap (phases)
+    # Roadmap: show phases horizontally
     st.header("Roadmap")
     roadmap = result.get("roadmap", {})
-    st.subheader("Phases")
-    for ph in roadmap.get("phases", []):
-        months = ph.get("months", ph.get("duration_months", "—"))
-        st.write(f"- **{ph.get('phase','Phase')}** ({months} months)")
-        note = ph.get("notes")
-        if note:
-            st.write(f"  - {note}")
+    phases = roadmap.get("phases", [])
 
-    # Per-plant schedule (prefer engine schedule, else derived)
+    if phases:
+        cols_ph = st.columns(len(phases))
+        for i, ph in enumerate(phases):
+            with cols_ph[i]:
+                months = ph.get("months", ph.get("duration_months", "—"))
+                st.subheader(ph.get("phase", f"Phase {i+1}"))
+                st.write(f"**Duration:** {months} months")
+                if ph.get("notes"):
+                    st.write(f"- {ph.get('notes')}")
+    else:
+        st.write("No roadmap phases available.")
+
+    # Per-plant schedule
     st.subheader("Per-Plant Schedule")
     p_sched = roadmap.get("per_plant_schedule", [])
     if p_sched:
         st.table(pd.DataFrame(p_sched))
     else:
-        # attempt derive quickly
         plant_dist = result.get("em_summaries", {}).get("steel_info", {}).get("plant_distribution", [])
         if plant_dist:
             total_added = sum(p.get("added_tpa",0) for p in plant_dist) or 1
-            procurement_total = result.get("metrics", {}).get("estimated_payback_months", 2)  # fallback small
-            implementation_total = result.get("implementation_timeline", {}).get("implementation_months", 6) if result.get("implementation_timeline") else 6
             derived=[]
             offset=0
+            procurement_total = result.get("metrics", {}).get("estimated_payback_months", 2) or 2
+            implementation_total = result.get("implementation_timeline", {}).get("implementation_months", 6) if result.get("implementation_timeline") else 6
             for p in sorted(plant_dist, key=lambda x: x.get("added_tpa",0), reverse=True):
                 share = p.get("added_tpa",0)/total_added
                 proc=max(1,int(round(2*share)))
@@ -145,7 +147,7 @@ if st.button("Run Simulation"):
 
     st.markdown("---")
 
-    # Per-plant financials (expanded hiring)
+    # Per-plant financials
     st.subheader("Per-Plant Financials (detailed)")
     plant_dist = result.get("em_summaries", {}).get("steel_info", {}).get("plant_distribution", [])
     if plant_dist:
@@ -164,35 +166,42 @@ if st.button("Run Simulation"):
 
     st.markdown("---")
 
-    # Infrastructure (clean bullets)
+    # Infrastructure Analysis: ports & energy side-by-side
     st.subheader("Infrastructure Analysis (Ports & Energy)")
     infra = pretty_infra(result.get("infrastructure_analysis", {}))
-
     ports = infra.get("ports", {})
-    if ports:
-        st.markdown("### Ports")
-        preferred_order = ["total_port_capacity_tpa","used_port_tpa","group_port_share_tpa","spare_port_tpa","available_port_for_steel_tpa","port_throughput_required_tpa"]
-        for k in preferred_order:
-            if k in ports:
-                st.write(f"- **{k.replace('_',' ').title()}:** {ports[k]}")
-        for k,v in ports.items():
-            if k not in preferred_order:
-                st.write(f"- **{k.replace('_',' ').title()}:** {v}")
-
     energy = infra.get("energy", {})
-    if energy:
-        st.markdown("### Energy")
-        pref_e = ["total_energy_capacity_mw","used_energy_mw","group_energy_share_mw","spare_energy_mw","available_energy_for_steel_mw","energy_required_mw"]
-        for k in pref_e:
-            if k in energy:
-                st.write(f"- **{k.replace('_',' ').title()}:** {energy[k]}")
-        for k,v in energy.items():
-            if k not in pref_e:
-                st.write(f"- **{k.replace('_',' ').title()}:** {v}")
+
+    col_left, col_right = st.columns(2)
+    with col_left:
+        if ports:
+            st.markdown("#### Ports")
+            preferred_order = ["total_port_capacity_tpa","used_port_tpa","group_port_share_tpa","spare_port_tpa","available_port_for_steel_tpa","port_throughput_required_tpa"]
+            for k in preferred_order:
+                if k in ports:
+                    st.write(f"- **{k.replace('_',' ').title()}:** {ports[k]}")
+            for k,v in ports.items():
+                if k not in preferred_order:
+                    st.write(f"- **{k.replace('_',' ').title()}:** {v}")
+        else:
+            st.write("No port data.")
+
+    with col_right:
+        if energy:
+            st.markdown("#### Energy")
+            pref_e = ["total_energy_capacity_mw","used_energy_mw","group_energy_share_mw","spare_energy_mw","available_energy_for_steel_mw","energy_required_mw"]
+            for k in pref_e:
+                if k in energy:
+                    st.write(f"- **{k.replace('_',' ').title()}:** {energy[k]}")
+            for k,v in energy.items():
+                if k not in pref_e:
+                    st.write(f"- **{k.replace('_',' ').title()}:** {v}")
+        else:
+            st.write("No energy data.")
 
     st.markdown("---")
 
-    # Human-readable full result (no JSON)
+    # Full result (human readable) - infra summary side-by-side
     with st.expander("Full result (raw)"):
         st.markdown("## Recommendation")
         st.write(f"**Headline:** {rec.get('headline','')}")
@@ -207,13 +216,14 @@ if st.button("Run Simulation"):
             st.write(f"- {a}")
 
         st.markdown("---")
-        st.markdown("## Roadmap")
-        for ph in roadmap.get("phases", []):
-            months = ph.get("months",ph.get("duration_months","—"))
+        st.markdown("## Roadmap (Phases)")
+        phases = roadmap.get("phases", [])
+        for ph in phases:
+            months = ph.get("months", ph.get("duration_months","—"))
             st.write(f"- **{ph.get('phase','Phase')}** ({months} months): {ph.get('notes','')}")
 
         st.markdown("### Per-Plant Schedule")
-        sched = roadmap.get("per_plant_schedule",[])
+        sched = roadmap.get("per_plant_schedule", [])
         if sched:
             st.table(pd.DataFrame(sched))
         else:
@@ -228,10 +238,20 @@ if st.button("Run Simulation"):
         st.markdown("## Infrastructure Summary")
         infra = pretty_infra(result.get("infrastructure_analysis", {}))
         ports = infra.get("ports", {})
-        st.markdown("### Ports")
-        for k,v in ports.items():
-            st.write(f"- **{k.replace('_',' ').title()}:** {v}")
-        st.markdown("### Energy")
-        en = infra.get("energy", {})
-        for k,v in en.items():
-            st.write(f"- **{k.replace('_',' ').title()}:** {v}")
+        energy = infra.get("energy", {})
+
+        cols_ir = st.columns(2)
+        with cols_ir[0]:
+            st.markdown("### Ports")
+            if ports:
+                for k,v in ports.items():
+                    st.write(f"- **{k.replace('_',' ').title()}:** {v}")
+            else:
+                st.write("No port data.")
+        with cols_ir[1]:
+            st.markdown("### Energy")
+            if energy:
+                for k,v in energy.items():
+                    st.write(f"- **{k.replace('_',' ').title()}:** {v}")
+            else:
+                st.write("No energy data.")
