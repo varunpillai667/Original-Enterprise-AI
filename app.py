@@ -1,4 +1,6 @@
-# app.py
+# =====================
+# File: app.py
+# =====================
 import streamlit as st
 import pandas as pd
 import json
@@ -8,7 +10,9 @@ from decision_engine import run_simulation
 st.set_page_config(page_title="Original Enterprise AI Concept Prototype", layout="wide")
 st.title("Original Enterprise AI Concept Prototype")
 
-# Intro
+# ---------------------------------------------------------
+# FULL INTRO (RESTORED EXACTLY AS REQUESTED)
+# ---------------------------------------------------------
 st.markdown(
     """
 ### Introduction
@@ -17,9 +21,28 @@ st.markdown(
 All simulation results in this prototype are based on **assumed, simplified data only**, used only for conceptual demonstration.
 
 ### Operating Principles
-LOCAL Nodes -> Enterprise Managers (EMs) -> Group Manager.
+
+**LOCAL Nodes — Site Layer**  
+LOCAL Nodes collect and transmit operational data from each port, steel plant, and power plant.  
+They do minimal processing.
+
+**Enterprise Managers (EMs) — Company Layer**  
+Each company has an EM:  
+- **Ports EM** (manages all 4 ports)  
+- **Steel EM** (manages all 4 steel plants)  
+- **Energy EM** (manages all 3 power plants)  
+
+EMs collect data both from LOCAL nodes and from their **company-level IT systems** (ERP, MES, SCADA, planning systems).  
+They make company-level decisions and send consolidated information upward.
+
+**Group Manager — Group Layer**  
+The Group Manager connects all EMs and **group-level systems**, enabling Group-X-wide coordination, simulations, and decisions.
+
+**Purpose of this prototype:**  
+Explain how a multi-layer enterprise system could respond to strategic questions using simulated data.
 """
 )
+
 st.markdown("---")
 
 # helpers
