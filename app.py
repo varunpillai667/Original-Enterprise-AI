@@ -1,13 +1,13 @@
 # =========================
 # File: app.py
+# Path: src/app.py  (place file accordingly)
 # =========================
 import streamlit as st
 from decision_engine import run_simulation
 
 st.set_page_config(layout="wide", page_title="Enterprise AI – Group X Strategic Simulator")
-
-# Introduction
 st.title("Enterprise AI – Group X Strategic Simulator")
+
 st.markdown(
     """
     <div style="font-size:16px; line-height:1.4; margin-bottom:12px;">
@@ -21,7 +21,6 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Strategic Query
 default_query = (
     "How can Group X increase steel production by approximately 2 MTPA in a reasonable time, "
     "and what is the expected timeline for recovering the investment?"
@@ -29,7 +28,7 @@ default_query = (
 st.subheader("Strategic Query")
 query = st.text_area("Enter your high-level strategic query", value=default_query, height=120)
 
-# Run button and enlarged info text (human readable, next to button)
+# Run button + enlarged info (human readable) next to it
 col_btn, col_info = st.columns([0.26, 1])
 with col_btn:
     if st.button("Run Simulation"):
@@ -48,7 +47,6 @@ with col_info:
         unsafe_allow_html=True
     )
 
-# Display results
 if "result" in st.session_state:
     result = st.session_state["result"]
 
@@ -56,6 +54,7 @@ if "result" in st.session_state:
     roadmap = result["roadmap"]
     rationale = result["rationale"]
 
+    # Header metrics
     st.header("Recommendation")
     st.subheader(rec["headline"])
     st.write(rec["summary"])
@@ -70,7 +69,8 @@ if "result" in st.session_state:
 
     st.divider()
 
-    st.subheader("Key Recommendations (Full Program Steps)")
+    # Key recommendations (expanders)
+    st.subheader("Key Recommendations")
     for i, step in enumerate(rec["key_recommendations"], start=1):
         with st.expander(f"{i}. {step['step']}"):
             st.markdown(f"**Owner:** {step['owner']}")
@@ -83,25 +83,40 @@ if "result" in st.session_state:
 
     st.divider()
 
+    # Per-plant upgrades — clean human-readable format (no JSON/code view)
     st.subheader("Per-Plant Upgrade Specifications")
     for p in rec["per_plant_upgrades"]:
         with st.expander(f"{p['plant_name']} — add {p['added_mtpa']} MTPA"):
-            st.markdown(f"- Current capacity (tpa): {p['current_capacity_tpa']:,}")
-            st.markdown(f"- Added capacity (tpa): {p['added_tpa']:,}")
-            st.markdown(f"- Total CAPEX (USD): ${p['capex_total_usd']:,}")
-            st.markdown(f"- Estimated payback (months): {p['estimated_payback_months']}")
-            st.markdown("- Hiring estimate:")
-            st.write(p['hiring_estimate'])
-            st.markdown("- Upgrade scope:")
-            for u in p['upgrade_scope']:
-                st.markdown(f"  - {u}")
-            st.markdown("- CAPEX breakdown:")
-            for k,v in p['capex_breakdown_usd'].items():
-                st.markdown(f"  - {k}: ${v:,}")
-            st.markdown(f"- Schedule (months): {p['schedule_months']}")
+            st.markdown(f"**Current capacity:** {p['current_capacity_tpa']:,} tpa")
+            st.markdown(f"**Added capacity:** {p['added_tpa']:,} tpa")
+            st.markdown(f"**Total CAPEX:** ${p['capex_total_usd']:,}")
+            st.markdown(f"**Estimated payback:** {p['estimated_payback_months']} months")
+
+            st.markdown("**Hiring estimate:**")
+            hires = p.get("hiring_estimate", {})
+            st.markdown(f"- Engineers: {hires.get('engineers', 0)}  ")
+            st.markdown(f"- Maintenance: {hires.get('maintenance', 0)}  ")
+            st.markdown(f"- Operators: {hires.get('operators', 0)}  ")
+            st.markdown(f"- Project managers: {hires.get('project_managers', 0)}  ")
+
+            st.markdown("**Upgrade scope:**")
+            for u in p.get("upgrade_scope", []):
+                st.markdown(f"- {u}")
+
+            st.markdown("**CAPEX breakdown:**")
+            for k, v in p.get("capex_breakdown_usd", {}).items():
+                st.markdown(f"- {k}: ${v:,}")
+
+            st.markdown("**Schedule (months):**")
+            sched = p.get("schedule_months", {})
+            st.markdown(f"- Procurement: {sched.get('procurement_months','—')} months  ")
+            st.markdown(f"- Implementation: {sched.get('implementation_months','—')} months  ")
+            st.markdown(f"- Commissioning: {sched.get('commissioning_months','—')} months  ")
+            st.markdown(f"- Expected online: {sched.get('expected_time_to_online_months','—')} months  ")
 
     st.divider()
 
+    # Roadmap horizontally
     st.subheader("Roadmap (Phases)")
     phases = roadmap.get("phases", [])
     if phases:
@@ -112,8 +127,11 @@ if "result" in st.session_state:
 
     st.divider()
 
+    # Decision rationale — clear explanations for every recommendation
     st.subheader("Decision Rationale — explanation for every recommendation")
     for b in rationale.get("bullets", []):
-        st.write(f"- {b}")
+        st.markdown(f"- {b}")
 
     st.success("Complete recommendation and roadmap generated.")
+# End app.py
+# =========================
