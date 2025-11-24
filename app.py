@@ -9,7 +9,7 @@ from decision_engine import run_simulation
 st.set_page_config(page_title="Original Enterprise AI Concept Prototype", layout="wide")
 st.title("Original Enterprise AI Concept Prototype")
 
-# Compact intro (tight spacing) including EM simulation capability
+# Compact intro (tight spacing) including EM capability
 st.markdown(
     """
 **Group X** operates 4 ports, 4 steel plants and 3 power plants.  
@@ -17,7 +17,7 @@ All simulation results are based on assumed, simplified data for conceptual demo
 
 **Operating principles** — LOCAL nodes collect and forward site data. EMs (Ports EM, Steel EM, Energy EM) aggregate local data, connect to company systems (ERP/MES/SCADA) and can perform **company-level simulations and decisions**. The Group Manager aggregates EM outputs and runs cross-company simulations.
 
-Purpose: produce a single, risk-adjusted recommendation and roadmap that considers internal and external factors.
+Purpose: produce a single, comprehensive recommendation and roadmap that covers internal and external factors required to complete the project.
 """
 )
 
@@ -30,33 +30,30 @@ default_query = (
     "including the upgrades required across steel plants, the expected investment, the realistic implementation timeline, "
     "and the estimated period in which the investment can be recovered?"
 )
-# Only one text_area in the whole app
 query = st.text_area("Enter high-level strategic query", value=default_query, height=120)
 
 # helpers
-def parse_hiring(x: Any) -> Dict[str, int]:
+def parse_hiring(x: Any):
     base = {"engineers": 0, "maintenance": 0, "operators": 0, "project_managers": 0}
     if isinstance(x, dict):
         return {k: int(x.get(k, 0)) for k in base}
     return base
 
-def pretty_infra(data: Dict[str, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
-    for section, vals in (data or {}).items():
-        if isinstance(vals, dict):
-            out[section] = {k: (f"{v:,}" if isinstance(v, int) else round(v,2)) for k, v in vals.items()}
-        else:
-            out[section] = vals
-    return out
+def format_number(v: Any):
+    if isinstance(v, int):
+        return f"{v:,}"
+    if isinstance(v, float):
+        return round(v, 2)
+    return v
 
-# Run
+# Run simulation
 if st.button("Run Simulation"):
 
     if not query.strip():
         st.error("Please enter a strategic query.")
         st.stop()
 
-    with st.spinner("Running risk-adjusted simulation..."):
+    with st.spinner("Running simulation..."):
         try:
             result = run_simulation(query)
         except Exception as exc:
@@ -74,50 +71,44 @@ if st.button("Run Simulation"):
 
     metrics = rec.get("metrics", {})
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Added (MTPA)", metrics.get("added_mtpa", "—"))
-    c2.metric("Investment (USD, risk-adjusted)", f"${metrics.get('investment_usd_risk_adjusted', metrics.get('investment_usd_base',0)):,}")
-    c3.metric("Est. Payback (months, risk)", metrics.get("estimated_payback_months_risk","—"))
-    c4.metric("Confidence (%)", f"{result.get('confidence_pct','—')}%")
+    c1.metric("Capacity Added (MTPA)", metrics.get("added_mtpa", "—"))
+    inv = metrics.get("investment_usd", 0) or 0
+    c2.metric("Investment (USD)", f"${inv:,}")
+    c3.metric("Estimated Payback (months)", metrics.get("estimated_payback_months", "—"))
+    c4.metric("Project Timeline (months)", metrics.get("project_timeline_months", "—"))
+
+    # Confidence shown separately (smaller)
+    st.write(f"**Confidence:** {result.get('confidence_pct', '—')}%")
 
     if rec.get("actions"):
         st.subheader("Key recommended actions")
         for a in rec.get("actions", [])[:8]:
             st.write(f"- {a}")
 
-    debug_lines = result.get("notes", {}).get("debug", [])
-    if debug_lines:
-        with st.expander("Data / debug notes"):
-            for d in debug_lines:
-                st.write(f"- {d}")
-
     st.markdown("---")
 
-    # Roadmap (below recommendation) show base vs risk-adjusted months
-    st.header("Roadmap (Phases) — Base vs Risk-Adjusted")
+    # Roadmap — below Recommendation (clean horizontal layout)
+    st.header("Roadmap (Phases)")
     phases = roadmap.get("phases", [])
     if phases:
         cols = st.columns(len(phases))
         for col, ph in zip(cols, phases):
-            base_m = ph.get("months_base", "—")
-            risk_m = ph.get("months_risk", "—")
-            col.markdown(
-                f"""
-                <div style="padding:10px; min-width:160px; box-sizing:border-box;">
-                  <div style="font-weight:700; font-size:14px; margin-bottom:4px; white-space:nowrap;">{ph.get('phase','')}</div>
-                  <div style="font-size:13px; margin-bottom:4px;"><strong>Base:</strong> {base_m} months</div>
-                  <div style="font-size:13px; margin-bottom:6px;"><strong>Risk adj:</strong> {risk_m} months</div>
-                  <div style="font-size:12px; color:#444;">{ph.get('notes','')}</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+            months = ph.get("months", "—")
+            html = f"""
+            <div style="padding:10px; min-width:160px; box-sizing:border-box;">
+                <div style="font-weight:700; font-size:14px; margin-bottom:6px; white-space:nowrap;">{ph.get('phase','')}</div>
+                <div style="margin-bottom:6px;"><strong>Duration:</strong> {months} months</div>
+                <div style="font-size:13px; color:#444; white-space:normal;">{ph.get('notes','')}</div>
+            </div>
+            """
+            col.markdown(html, unsafe_allow_html=True)
     else:
-        st.write("No roadmap data.")
+        st.write("No roadmap phases available.")
 
     st.markdown("---")
 
     # Per-Plant Schedule
-    st.subheader("Per-Plant Schedule (Risk-adjusted windows)")
+    st.subheader("Per-Plant Schedule")
     p_sched = roadmap.get("per_plant_schedule", [])
     if p_sched:
         st.table(pd.DataFrame(p_sched))
@@ -144,33 +135,40 @@ if st.button("Run Simulation"):
                 df["capex_usd"] = df["capex_usd"].apply(lambda x: f"${x:,}")
             if "annual_margin_usd" in df.columns:
                 df["annual_margin_usd"] = df["annual_margin_usd"].apply(lambda x: f"${x:,}")
-            st.table(df[[c for c in df.columns if c in ["name","current_capacity_tpa","added_mtpa","capex_usd","annual_margin_usd","base_payback_months"]]])
+            display_cols = [c for c in df.columns if c in ["name","current_capacity_tpa","added_mtpa","capex_usd","annual_margin_usd","base_payback_months"]]
+            if display_cols:
+                st.table(df[display_cols])
+            else:
+                st.write("No plant financials available.")
         else:
             st.write("No plant distribution available.")
 
     st.markdown("---")
 
-    # Infrastructure analysis (side-by-side)
+    # Infrastructure (ports & energy) side-by-side
     st.header("Infrastructure Analysis (Ports | Energy)")
-    infra = pretty_infra(result.get("infrastructure_analysis", {}))
-    ports = infra.get("ports", {})
-    energy = infra.get("energy", {})
+    infra = result.get("em_summaries", {})
+    ports_info = infra.get("ports_info", {})
+    energy_info = infra.get("energy_info", {})
 
-    col_ports, col_energy = st.columns(2)
-    with col_ports:
+    c1, c2 = st.columns(2)
+    with c1:
         st.subheader("Ports")
-        if ports:
-            for k,v in ports.items():
-                st.write(f"- **{k.replace('_',' ').title()}:** {v}")
+        if ports_info:
+            st.write(f"- **Total port capacity (tpa):** {format_number(ports_info.get('total_port_capacity_tpa','—'))}")
+            st.write(f"- **Used port (tpa):** {format_number(ports_info.get('used_port_tpa','—'))}")
+            st.write(f"- **Required for project (tpa):** {format_number(result.get('recommendation',{}).get('metrics',{}).get('port_throughput_required_tpa','—'))}")
         else:
             st.write("No port data.")
-    with col_energy:
+    with c2:
         st.subheader("Energy")
-        if energy:
-            for k,v in energy.items():
-                st.write(f"- **{k.replace('_',' ').title()}:** {v}")
+        if energy_info:
+            st.write(f"- **Total energy capacity (MW):** {format_number(energy_info.get('total_energy_capacity_mw','—'))}")
+            st.write(f"- **Used energy (MW):** {format_number(energy_info.get('used_energy_mw','—'))}")
+            st.write(f"- **Required for project (MW):** {format_number(result.get('recommendation',{}).get('metrics',{}).get('energy_required_mw','—'))}")
         else:
             st.write("No energy data.")
 
     st.markdown("---")
-# end of app.py
+
+# End of app.py
