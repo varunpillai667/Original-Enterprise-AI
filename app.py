@@ -1,42 +1,36 @@
+# =========================
 # File: app.py
+# =========================
 import streamlit as st
 from decision_engine import run_simulation
 
 st.set_page_config(layout="wide", page_title="Enterprise AI – Group X Strategic Simulator")
 
-# ---- INTRODUCTION SECTION ----
+# Introduction
 st.title("Enterprise AI – Group X Strategic Simulator")
-
 st.markdown(
     """
-    <div style="font-size:16px; line-height:1.4; margin-bottom:15px;">
-    This simulation models how Enterprise Managers (EMs) and Group Managers coordinate upgrades across
-    Group X’s assets. Local nodes report into their respective EMs, company systems feed real-time data,
-    and the Group Manager integrates everything at the enterprise level. The simulation considers steel plants,
-    ports, and power plants, along with all required operational, external, and infrastructural variables.
+    <div style="font-size:16px; line-height:1.4; margin-bottom:12px;">
+    This simulation models how Enterprise Managers (EMs) and the Group Manager coordinate upgrades across Group X’s assets.
+    Local nodes report to EMs; EMs connect to company systems; the Group Manager integrates at enterprise level.
+    The model considers steel plants, ports and power plants together with operational and external factors.
     <br><br>
-    All calculations are based on assumptions for demonstration purposes.
+    All calculations are based on assumed data for demonstration purposes.
     </div>
     """,
     unsafe_allow_html=True
 )
 
-# ---- STRATEGIC QUERY ----
+# Strategic Query
 default_query = (
     "How can Group X increase steel production by approximately 2 MTPA in a reasonable time, "
     "and what is the expected timeline for recovering the investment?"
 )
-
 st.subheader("Strategic Query")
-query = st.text_area(
-    "Enter your high-level strategic query",
-    value=default_query,
-    height=120
-)
+query = st.text_area("Enter your high-level strategic query", value=default_query, height=120)
 
-# ---- RUN SIMULATION BUTTON + INFO TEXT ----
-col_btn, col_info = st.columns([0.28, 1])
-
+# Run button and enlarged info text (human readable, next to button)
+col_btn, col_info = st.columns([0.26, 1])
 with col_btn:
     if st.button("Run Simulation"):
         result = run_simulation(query)
@@ -45,14 +39,16 @@ with col_btn:
 with col_info:
     st.markdown(
         """
-        <span style="font-size: 13px; color:#555;">
-        (Clicking <strong>Run Simulation</strong> fetches all internal and external operating data and generates a complete, end-to-end solution.)
-        </span>
+        <div style="font-size:16px; color:#1f2937; background:#f4f6f8; padding:10px; border-radius:6px;">
+        <strong>Note:</strong> Clicking <strong>Run Simulation</strong> triggers automatic gathering of required internal
+        and external operational, infrastructure, supply-chain and market-risk data, and produces a complete, end-to-end
+        recommendation and implementation roadmap tailored to your query.
+        </div>
         """,
         unsafe_allow_html=True
     )
 
-# ---- DISPLAY RESULTS ----
+# Display results
 if "result" in st.session_state:
     result = st.session_state["result"]
 
@@ -60,68 +56,64 @@ if "result" in st.session_state:
     roadmap = result["roadmap"]
     rationale = result["rationale"]
 
-    # --- Main Recommendation ---
     st.header("Recommendation")
-
     st.subheader(rec["headline"])
     st.write(rec["summary"])
 
     metrics = rec["metrics"]
-
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Added Capacity (MTPA)", f"{metrics['added_mtpa']:.3f}")
-    col2.metric("Investment (USD)", f"${metrics['investment_usd']:,}")
-    col3.metric("Payback (months)", metrics["estimated_payback_months"])
-    col4.metric("Timeline (months)", metrics["project_timeline_months"])
-    col5.metric("Confidence", f"{metrics['confidence_pct']}%")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Added Capacity (MTPA)", f"{metrics['added_mtpa']:.3f}")
+    c2.metric("Investment (USD)", f"${metrics['investment_usd']:,}")
+    c3.metric("Estimated Payback (months)", metrics["estimated_payback_months"])
+    c4.metric("Project Timeline (months)", metrics["project_timeline_months"])
+    c5.metric("Confidence", f"{metrics['confidence_pct']}%")
 
     st.divider()
 
-    # --- Key Recommendations Section ---
-    st.subheader("Key Recommendations")
-    for step in rec["key_recommendations"]:
-        with st.expander(step["step"]):
+    st.subheader("Key Recommendations (Full Program Steps)")
+    for i, step in enumerate(rec["key_recommendations"], start=1):
+        with st.expander(f"{i}. {step['step']}"):
             st.markdown(f"**Owner:** {step['owner']}")
-            st.markdown(f"**Estimated Duration:** {step['duration_months']} months")
+            st.markdown(f"**Estimated duration:** {step['duration_months']} months")
             st.markdown("**Details:**")
-            for d in step["details"]:
+            for d in step.get("details", []):
                 st.markdown(f"- {d}")
-            if "plants_in_scope" in step:
-                st.markdown("**Plants in Scope:** " + ", ".join(step["plants_in_scope"]))
+            if step.get("plants_in_scope"):
+                st.markdown("**Plants in scope:** " + ", ".join(step["plants_in_scope"]))
 
     st.divider()
 
-    # --- Per Plant Upgrades ---
-    st.subheader("Per-Plant Upgrades")
-    for plant in rec["per_plant_upgrades"]:
-        with st.expander(f"{plant['plant_name']} (+{plant['added_mtpa']} MTPA)"):
-            st.markdown(f"**Current Capacity:** {plant['current_capacity_tpa']:,} tpa")
-            st.markdown("**Upgrade Scope:**")
-            for item in plant["upgrade_scope"]:
-                st.markdown(f"- {item}")
-            st.markdown(f"**Investment:** ${plant['capex_total_usd']:,}")
-            st.markdown(f"**Estimated Payback:** {plant['estimated_payback_months']} months")
-            st.markdown("**Hiring Requirements:**")
-            st.write(plant["hiring_estimate"])
-            st.markdown("**Schedule (months):**")
-            st.write(plant["schedule_months"])
+    st.subheader("Per-Plant Upgrade Specifications")
+    for p in rec["per_plant_upgrades"]:
+        with st.expander(f"{p['plant_name']} — add {p['added_mtpa']} MTPA"):
+            st.markdown(f"- Current capacity (tpa): {p['current_capacity_tpa']:,}")
+            st.markdown(f"- Added capacity (tpa): {p['added_tpa']:,}")
+            st.markdown(f"- Total CAPEX (USD): ${p['capex_total_usd']:,}")
+            st.markdown(f"- Estimated payback (months): {p['estimated_payback_months']}")
+            st.markdown("- Hiring estimate:")
+            st.write(p['hiring_estimate'])
+            st.markdown("- Upgrade scope:")
+            for u in p['upgrade_scope']:
+                st.markdown(f"  - {u}")
+            st.markdown("- CAPEX breakdown:")
+            for k,v in p['capex_breakdown_usd'].items():
+                st.markdown(f"  - {k}: ${v:,}")
+            st.markdown(f"- Schedule (months): {p['schedule_months']}")
 
     st.divider()
 
-    # --- Roadmap Section ---
     st.subheader("Roadmap (Phases)")
-
-    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
-    phases = roadmap["phases"]
-
-    cols = [c1, c2, c3, c4, c5, c6, c7]
-    for col, phase in zip(cols, phases):
-        col.markdown(f"**{phase['phase']}**")
-        col.markdown(f"Duration: {phase['months']} months")
+    phases = roadmap.get("phases", [])
+    if phases:
+        cols = st.columns(len(phases))
+        for col, ph in zip(cols, phases):
+            col.markdown(f"**{ph['phase']}**")
+            col.markdown(f"Duration: {ph['months']} months")
 
     st.divider()
 
-    # --- Rationale ---
-    st.subheader("Decision Rationale")
-    for b in rationale["bullets"]:
-        st.markdown(f"- {b}")
+    st.subheader("Decision Rationale — explanation for every recommendation")
+    for b in rationale.get("bullets", []):
+        st.write(f"- {b}")
+
+    st.success("Complete recommendation and roadmap generated.")
