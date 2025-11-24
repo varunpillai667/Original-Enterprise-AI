@@ -306,10 +306,16 @@ def run_simulation(query: str) -> Dict[str,Any]:
     phase_b = sorted_by_roi[2:]
 
     # Phase A recommendations
+    # --- FIX: compute duration based on phase_a (avoid undefined 'x') ---
+    if phase_a:
+        phase_a_max_online = max(item["schedule_windows_months"]["expected_time_to_online_months"] for item in phase_a)
+    else:
+        phase_a_max_online = 6  # fallback conservative
+
     key_recommendations.append({
         "step": "Phase A execution (ROI-first)",
         "owner": "Steel EM / Plant PMs",
-        "duration_months": max(int(round(x["schedule_windows_months"]["expected_time_to_online_months"] * (1 + schedule_procurement_pct + schedule_implementation_pct*0.2))), 6),
+        "duration_months": max(int(round(phase_a_max_online * (1 + schedule_procurement_pct + schedule_implementation_pct*0.2))), 6),
         "details": [
             "Deploy MES + targeted automation and productivity program to rapidly increase OEE",
             "Procure and install modular EAF modules at Phase A plants (prioritise plants with best ROI)",
@@ -324,7 +330,7 @@ def run_simulation(query: str) -> Dict[str,Any]:
     key_recommendations.append({
         "step": "Phase B execution (remaining plants)",
         "owner": "Steel EM / Plant PMs",
-        "duration_months": max(6, int(round(max(p["schedule_windows_months"]["expected_time_to_online_months"] for p in phase_b) * (1 + schedule_procurement_pct)))),
+        "duration_months": max(6, int(round(max(p["schedule_windows_months"]["expected_time_to_online_months"] for p in phase_b) * (1 + schedule_procurement_pct)))) if phase_b else 6,
         "details": [
             "Repeat modular installations where required, finalize material handling & finishing upgrades",
             "Fine tune supply chain flows and integrate plant-level MES dashboards into group PMO",
