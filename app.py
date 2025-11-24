@@ -1,7 +1,4 @@
-# =========================
 # File: app.py
-# Path: src/app.py  (place file accordingly)
-# =========================
 import streamlit as st
 from decision_engine import run_simulation
 
@@ -15,12 +12,13 @@ st.markdown(
     Local nodes report to EMs; EMs connect to company systems; the Group Manager integrates at enterprise level.
     The model considers steel plants, ports and power plants together with operational and external factors.
     <br><br>
-    All calculations are based on assumed data for demonstration purposes.
+    <em>All calculations are based on assumed data for demonstration purposes.</em>
     </div>
     """,
     unsafe_allow_html=True
 )
 
+# Strategic Query
 default_query = (
     "How can Group X increase steel production by approximately 2 MTPA in a reasonable time, "
     "and what is the expected timeline for recovering the investment?"
@@ -28,7 +26,7 @@ default_query = (
 st.subheader("Strategic Query")
 query = st.text_area("Enter your high-level strategic query", value=default_query, height=120)
 
-# Run button + enlarged info (human readable) next to it
+# Run Simulation button + readable info (to the right)
 col_btn, col_info = st.columns([0.26, 1])
 with col_btn:
     if st.button("Run Simulation"):
@@ -39,14 +37,16 @@ with col_info:
     st.markdown(
         """
         <div style="font-size:16px; color:#1f2937; background:#f4f6f8; padding:10px; border-radius:6px;">
-        <strong>Note:</strong> Clicking <strong>Run Simulation</strong> triggers automatic gathering of required internal
-        and external operational, infrastructure, supply-chain and market-risk data, and produces a complete, end-to-end
-        recommendation and implementation roadmap tailored to your query.
+        <strong>Note:</strong> Clicking <strong>Run Simulation</strong> automatically gathers required internal and external
+        operational, infrastructure, supply-chain, and market-risk data, then produces a tailored, end-to-end recommendation and roadmap.
         </div>
         """,
         unsafe_allow_html=True
     )
 
+st.markdown("---")
+
+# Results display (unchanged layout, clean formatting)
 if "result" in st.session_state:
     result = st.session_state["result"]
 
@@ -69,7 +69,7 @@ if "result" in st.session_state:
 
     st.divider()
 
-    # Key recommendations (expanders)
+    # Key recommendations
     st.subheader("Key Recommendations")
     for i, step in enumerate(rec["key_recommendations"], start=1):
         with st.expander(f"{i}. {step['step']}"):
@@ -83,7 +83,7 @@ if "result" in st.session_state:
 
     st.divider()
 
-    # Per-plant upgrades — clean human-readable format (no JSON/code view)
+    # Per-plant upgrades — clean, no JSON/code blocks
     st.subheader("Per-Plant Upgrade Specifications")
     for p in rec["per_plant_upgrades"]:
         with st.expander(f"{p['plant_name']} — add {p['added_mtpa']} MTPA"):
@@ -127,11 +127,79 @@ if "result" in st.session_state:
 
     st.divider()
 
-    # Decision rationale — clear explanations for every recommendation
+    # Decision rationale
     st.subheader("Decision Rationale — explanation for every recommendation")
     for b in rationale.get("bullets", []):
         st.markdown(f"- {b}")
 
-    st.success("Complete recommendation and roadmap generated.")
-# End app.py
-# =========================
+    st.divider()
+
+    # ============================
+    # Export Options box (NEW)
+    # ============================
+    st.header("Export & Deliverables")
+    st.markdown(
+        """
+        <div style="background:#f8fafc; padding:14px; border-radius:8px;">
+        <strong>Choose export formats</strong> — select one or more options below and click <em>Generate</em>.
+        <br><br>
+        <em>Available export types:</em>
+        <ul style="margin-top:6px;">
+          <li><strong>PDF</strong> — one-page executive summary (board-ready)</li>
+          <li><strong>Detailed Power BI report</strong> — deep-dive dataset and visuals for analysts</li>
+          <li><strong>Excel</strong> — full tabular export for further analysis</li>
+          <li><strong>Create process flow diagram</strong> — generate a process diagram of the simulation flow</li>
+        </ul>
+        <div style="margin-top:8px; color:#333;">
+        <strong>Note:</strong> This is a demo. Clicking <em>Generate</em> will not produce any files — it will only simulate the export action and confirm selection.
+        </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # Interactive controls
+    col_a, col_b = st.columns([1, 1])
+    with col_a:
+        export_pdf = st.checkbox("PDF — Executive summary")
+        export_powerbi = st.checkbox("Power BI — Detailed report")
+    with col_b:
+        export_excel = st.checkbox("Excel — Full data export")
+        export_flow = st.checkbox("Create process flow diagram")
+
+    generate_clicked = st.button("Generate")
+
+    if generate_clicked:
+        # Build list of selected
+        selections = []
+        if export_pdf:
+            selections.append("PDF (Executive summary)")
+        if export_powerbi:
+            selections.append("Power BI (Detailed report)")
+        if export_excel:
+            selections.append("Excel (Full data)")
+        if export_flow:
+            selections.append("Process flow diagram")
+
+        if not selections:
+            st.warning("No export format selected. Please select at least one option before clicking Generate.")
+        else:
+            # Demo behavior: do not produce files — show a clear message
+            st.info(
+                "Demo mode — export simulation\n\n"
+                "You selected: " + ", ".join(selections) + ".\n\n"
+                "This is a demonstration environment. Exports are disabled in demo mode and no files will be produced. "
+                "In a production deployment, the system would generate the selected deliverables and provide download links here."
+            )
+            # Provide the uploaded Operational Flow doc path as reference (system will convert this path to a URL in your environment)
+            st.markdown(
+                """
+                **Reference file (uploaded):**  
+                [Operational Flow document](/mnt/data/Operational Flow.docx)
+                """,
+                unsafe_allow_html=True
+            )
+
+    st.success("If you need actual exports enabled, tell me which formats to enable and I will implement them.")
+
+# end of app.py
