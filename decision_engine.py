@@ -643,5 +643,3 @@ if st.button("Run Simulation"):
             st.write("No energy data.")
 
     st.markdown("---")
-
-# end app.py
