@@ -1,6 +1,6 @@
-# ------------------------------
+# =========================
 # File: app.py
-# ------------------------------
+# =========================
 import streamlit as st
 import pandas as pd
 from typing import Any, Dict
@@ -9,7 +9,7 @@ from decision_engine import run_simulation
 st.set_page_config(page_title="Original Enterprise AI Concept Prototype", layout="wide")
 st.title("Original Enterprise AI Concept Prototype")
 
-# Compact intro (tight spacing) with EM simulation capability
+# Compact intro (tight spacing) including EM simulation capability
 st.markdown(
     """
 **Group X** operates 4 ports, 4 steel plants and 3 power plants.  
@@ -22,6 +22,16 @@ Purpose: produce a single, risk-adjusted recommendation and roadmap that conside
 )
 
 st.markdown("---")
+
+# --- SINGLE Strategic Query box — placed at top (Option A) ---
+st.subheader("Strategic Query")
+default_query = (
+    "What is the recommended approach for increasing Group X’s steel production by approximately 2 MTPA, "
+    "including the upgrades required across steel plants, the expected investment, the realistic implementation timeline, "
+    "and the estimated period in which the investment can be recovered?"
+)
+# Only one text_area in the whole app
+query = st.text_area("Enter high-level strategic query", value=default_query, height=120)
 
 # helpers
 def parse_hiring(x: Any) -> Dict[str, int]:
@@ -38,12 +48,6 @@ def pretty_infra(data: Dict[str, Any]) -> Dict[str, Any]:
         else:
             out[section] = vals
     return out
-
-st.subheader("Strategic Query")
-default_query = ("What is the recommended approach for increasing Group X’s steel production by approximately 2 MTPA, "
-                 "including the upgrades required across steel plants, the expected investment, the realistic implementation timeline, "
-                 "and the estimated period in which the investment can be recovered?")
-query = st.text_area("Enter high-level strategic query", value=default_query, height=120)
 
 # Run
 if st.button("Run Simulation"):
@@ -169,3 +173,4 @@ if st.button("Run Simulation"):
             st.write("No energy data.")
 
     st.markdown("---")
+# end of app.py
