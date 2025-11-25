@@ -1,13 +1,10 @@
-# =========================
 # File: decision_engine.py
-# Path: src/decision_engine.py  (place file accordingly)
-# =========================
 from __future__ import annotations
 import re
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
-OPERATIONAL_FLOW_DOC = "/mnt/data/Operational Flow.docx"  # uploaded doc path
+OPERATIONAL_FLOW_DOC = "/mnt/data/Operational Flow.docx"
 
 CAPEX_PER_MTPA_USD = 420_000_000
 MARGIN_PER_TON_USD = 120
@@ -21,12 +18,14 @@ PER_PLANT_MTPA = [
     {"id": "SP4", "name": "Steel Plant 4", "added_mtpa": 0.2},
 ]
 
+# baseline shares
 PORT_UTILIZATION = 0.70
 PORT_GROUP_SHARE_OF_USED = 1.0 / 3.0
 ENERGY_UTILIZATION = 0.75
 ENERGY_GRID_SHARE_OF_USED = 3.0 / 4.0
 
-RISK_PROFILE = {
+# baseline risk multipliers (will be adjusted by stock market factor if provided)
+BASE_RISK_PROFILE = {
     "procurement_delay_pct": 0.14,
     "implementation_delay_pct": 0.12,
     "commissioning_delay_pct": 0.03,
@@ -75,10 +74,6 @@ def _energy_mw_for_mtpa(mtpa: float) -> float:
 
 
 def _try_load_docx(path: str) -> Dict[str, Any]:
-    """
-    Attempt to extract simple structured numbers from uploaded docx.
-    Safe fallback to {} if python-docx not available or parsing fails.
-    """
     try:
         from docx import Document
     except Exception:
@@ -129,13 +124,9 @@ def _load_data():
 
 
 def _build_per_plant_upgrade(plant: Dict[str, Any], added_mtpa: float) -> Dict[str, Any]:
-    """
-    Return a structured per-plant upgrade plan (no printing here).
-    """
     added_tpa = int(round(added_mtpa * 1_000_000))
     capex = int(round(_capex_for_mtpa(added_mtpa)))
 
-    # choose upgrade package by size
     if added_mtpa >= 0.7:
         pkg = [
             "Install modular EAF cells (scalable modules)",
@@ -198,15 +189,76 @@ def _build_per_plant_upgrade(plant: Dict[str, Any], added_mtpa: float) -> Dict[s
     }
 
 
-def run_simulation(query: str) -> Dict[str, Any]:
+def _apply_stock_market_impact(base_risks: Dict[str, float], stock_market: Optional[Dict[str, Any]]) -> (Dict[str, float], Dict[str, Any]):
     """
-    Main entry point for the decision engine. Returns a clean result dictionary.
+    If stock_market provided, return adjusted risk profile and a small impact summary dict.
+    stock_market expected shape:
+      {"index_change_pct": float, "volatility": "Low"|"Medium"|"High"}
+    Only downside (negative index_change) increases risk; upside reduces risk slightly.
     """
+    risks = dict(base_risks)  # copy
+    impact = {"applied": False, "index_change_pct": None, "volatility": None, "market_shock": 0.0, "reason": ""}
+
+    if not stock_market:
+        return risks, impact
+
+    try:
+        idx_change = float(stock_market.get("index_change_pct", 0.0))
+        vol_str = str(stock_market.get("volatility", "Medium")).lower()
+    except Exception:
+        return risks, impact
+
+    vol_map = {"low": 0.6, "medium": 1.0, "high": 1.4}
+    vol_factor = vol_map.get(vol_str, 1.0)
+
+    # Compute shock: only downside (negative change) increases risk
+    downside_pct = max(0.0, -idx_change)
+    market_shock = downside_pct * vol_factor  # e.g., -8% drop * 1.4 -> 11.2 shock
+
+    # Translate into risk adjustments (conservative caps)
+    # margin_down increases more strongly with market_shock
+    add_margin_down = min(0.35, market_shock * 0.01 * 1.2)  # e.g., 11.2 -> 0.1344
+    add_capex_inflation = min(0.25, market_shock * 0.008)  # e.g., 11.2 -> 0.0896
+    confidence_penalty = int(round(market_shock * 0.2))  # e.g., 11.2 -> 2
+
+    # If index positive (market rise), reduce margin_down slightly and capex inflation slightly
+    if idx_change > 0:
+        add_margin_down = -min(0.06, idx_change * 0.005)  # small beneficial effect
+        add_capex_inflation = -min(0.03, idx_change * 0.002)
+
+    # Apply adjustments
+    risks["margin_down_pct"] = max(0.0, risks.get("margin_down_pct", 0.0) + add_margin_down)
+    risks["capex_inflation_pct"] = max(0.0, risks.get("capex_inflation_pct", 0.0) + add_capex_inflation)
+
+    impact.update({
+        "applied": True,
+        "index_change_pct": idx_change,
+        "volatility": vol_str.title(),
+        "market_shock": round(market_shock, 3),
+        "add_margin_down": round(add_margin_down, 4),
+        "add_capex_inflation": round(add_capex_inflation, 4),
+        "confidence_penalty": confidence_penalty,
+        "reason": "Downside market movement increases margin erosion and capex pressure; upside slightly reduces risk."
+    })
+    return risks, impact
+
+
+def run_simulation(query: str, stock_market: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Main entry. Accepts optional stock_market dict to adjust risk profile.
+    Returns result dict (clean, human-readable values).
+    """
+    # load baseline data and risks
     data = _load_data()
     plants = data.get("steel", {}).get("plants", [])
     ports = data.get("ports", {}).get("ports", [])
     energy_plants = data.get("energy", {}).get("plants", [])
 
+    # copy base risk and apply stock market adjustments (if any)
+    risk_profile = dict(BASE_RISK_PROFILE)
+    risk_profile, stock_impact = _apply_stock_market_impact(risk_profile, stock_market)
+
+    # compute per-plant upgrades
     per_plant_results: List[Dict[str, Any]] = []
     total_added_mtpa = 0.0
     total_capex = 0
@@ -239,21 +291,21 @@ def run_simulation(query: str) -> Dict[str, Any]:
     available_energy_for_project_mw = spare_energy_mw + group_energy_share_mw
     energy_required_mw = _energy_mw_for_mtpa(total_added_mtpa)
 
-    # schedule/financial adjustments
-    capex_inflation = RISK_PROFILE["capex_inflation_pct"]
-    schedule_procurement_pct = RISK_PROFILE["procurement_delay_pct"]
-    schedule_implementation_pct = RISK_PROFILE["implementation_delay_pct"]
+    # schedule/financial adjustments from (possibly) updated risk_profile
+    capex_inflation = risk_profile["capex_inflation_pct"]
+    schedule_procurement_pct = risk_profile["procurement_delay_pct"]
+    schedule_implementation_pct = risk_profile["implementation_delay_pct"]
 
     max_online = max(p["schedule_windows_months"]["expected_time_to_online_months"] for p in per_plant_results)
     project_timeline_months = int(round(max_online * (1 + schedule_procurement_pct + schedule_implementation_pct * 0.25)))
 
     final_capex_usd = int(round(total_capex * (1 + capex_inflation)))
-    final_annual_margin_usd = int(round(total_added_margin * (1 - RISK_PROFILE["margin_down_pct"])))
+    final_annual_margin_usd = int(round(total_added_margin * (1 - risk_profile["margin_down_pct"])))
     estimated_payback_months = None
     if final_annual_margin_usd > 0:
         estimated_payback_months = round((final_capex_usd / final_annual_margin_usd) * 12.0, 1)
 
-    # recommendations
+    # recommendations (same structure as before)
     key_recommendations: List[Dict[str, Any]] = []
     key_recommendations.append({
         "step": "Program setup & governance",
@@ -347,8 +399,8 @@ def run_simulation(query: str) -> Dict[str, Any]:
 
     per_plant_upgrades: List[Dict[str, Any]] = []
     for p in per_plant_results:
-        p_final_capex = int(round(p["capex_total_usd"] * (1 + RISK_PROFILE["capex_inflation_pct"])))
-        annual_margin_final = int(round(p["expected_annual_margin_usd"] * (1 - RISK_PROFILE["margin_down_pct"])))
+        p_final_capex = int(round(p["capex_total_usd"] * (1 + risk_profile["capex_inflation_pct"])))
+        annual_margin_final = int(round(p["expected_annual_margin_usd"] * (1 - risk_profile["margin_down_pct"])))
         payback_final = None
         if annual_margin_final > 0:
             payback_final = round((p_final_capex / annual_margin_final) * 12.0, 1)
@@ -360,46 +412,26 @@ def run_simulation(query: str) -> Dict[str, Any]:
             "added_tpa": p["added_tpa"],
             "upgrade_scope": p["upgrade_scope"],
             "capex_total_usd": p_final_capex,
-            "capex_breakdown_usd": {k: int(round(v * (1 + RISK_PROFILE["capex_inflation_pct"]))) for k, v in p["capex_breakdown_usd"].items()},
+            "capex_breakdown_usd": {k: int(round(v * (1 + risk_profile["capex_inflation_pct"]))) for k, v in p["capex_breakdown_usd"].items()},
             "hiring_estimate": p["hiring_estimate"],
             "schedule_months": p["schedule_windows_months"],
             "estimated_payback_months": payback_final
         })
 
-    # rich rationale
-    rationale_bullets: List[str] = []
-    rationale_bullets.append(
-        "Program setup & governance: central PMO and SRO for consistent decision-making and escalation — essential for parallel upgrades and cross-EM coordination."
-    )
-
-    for step in key_recommendations[1:]:
-        name = step["step"]
-        owner = step.get("owner", "Owner")
-        dur = step.get("duration_months", "N/A")
-        primary_reasons = "; ".join(step["details"][:2]) if step.get("details") else ""
-        rationale_bullets.append(
-            f"{name} ({owner}, {dur} months): Implement because {primary_reasons}. Ensures capacity, schedule, and operational continuity with clear owners and timing."
-        )
-
-    for p in per_plant_upgrades:
-        rationale_bullets.append(
-            f"{p['plant_name']}: upgrade adds {p['added_mtpa']} MTPA with modular EAF, automation and handling changes; capex ${p['capex_total_usd']:,}; key dependencies: EAF modules, electrical upgrades, ports."
-        )
-
-    rationale_bullets.append(
-        "Ports: spare berth capacity + 3PL and time-windowed arrivals keep commercial throughput intact; expedited customs lanes and extra shifts preserve SLAs."
-    )
-    rationale_bullets.append(
-        "Energy: short-term PPAs, WHR/captive generation and substation upgrades combined with smart scheduling provide incremental MW without diverting national-grid commitments."
-    )
-
+    # Confidence model with stock-market penalty applied earlier
     confidence = START_CONFIDENCE
     if energy_required_mw > available_energy_for_project_mw:
         confidence -= 15
     if port_requirement_tpa > available_port_for_project:
         confidence -= 12
-    confidence -= int(round(RISK_PROFILE["capex_inflation_pct"] * 10))
-    confidence -= int(round(RISK_PROFILE["margin_down_pct"] * 10))
+    # penalty for capex inflation + margin erosion using adjusted risk_profile
+    confidence -= int(round(risk_profile["capex_inflation_pct"] * 10))
+    confidence -= int(round(risk_profile["margin_down_pct"] * 10))
+
+    # If stock market applied, further reduce confidence from stock_impact
+    if stock_impact.get("applied", False):
+        confidence -= int(stock_impact.get("confidence_penalty", 0))
+
     confidence = max(confidence, MIN_CONFIDENCE)
 
     result = {
@@ -430,7 +462,13 @@ def run_simulation(query: str) -> Dict[str, Any]:
             ],
             "project_timeline_months": int(round(project_timeline_months))
         },
-        "rationale": {"bullets": rationale_bullets},
+        "rationale": {"bullets": [
+            "Phase A targets highest ROI plants to accelerate cash flow.",
+            "Modular EAF and MES deliver fastest capacity gains per USD.",
+            "Ports program ensures project shipments do not reduce commercial cargo capacity.",
+            "Energy program combines PPAs, WHR and substation upgrades to avoid drawing additional capacity from the national grid.",
+            "Procurement frame contracts and dual-sourcing mitigate long-lead and geopolitical supplier risk."
+        ]},
         "em_summaries": {
             "steel": per_plant_upgrades,
             "ports": {
@@ -444,10 +482,16 @@ def run_simulation(query: str) -> Dict[str, Any]:
                 "required_for_project_mw": float(round(energy_required_mw, 2))
             }
         },
+        "stock_market_assumptions": stock_impact,
         "confidence_pct": int(round(confidence))
     }
 
     return result
 
-# End decision_engine.py
-# =========================
+
+if __name__ == "__main__":
+    # quick local execution debug (not printed as raw JSON in UI)
+    q = "Example: increase capacity by 2 MTPA"
+    r = run_simulation(q, stock_market={"index_change_pct": -8.5, "volatility": "High"})
+    import pprint
+    pprint.pprint(r)
