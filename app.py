@@ -26,11 +26,25 @@ default_query = (
 st.subheader("Strategic Query")
 query = st.text_area("Enter your high-level strategic query", value=default_query, height=120)
 
+# ------------------------
+# Stock market controls
+# ------------------------
+st.markdown("**External factors** — optional")
+include_stock = st.checkbox("Include stock market factor in simulation", value=False, help="Enable to model market-driven risk adjustments (margin erosion, capex inflation, confidence).")
+stock_market_payload = None
+if include_stock:
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        idx_change = st.number_input("Index change (%)", value=-5.0, step=0.5, help="Enter expected % change in major index (negative for decline).")
+    with col2:
+        volatility = st.selectbox("Volatility", options=["Low", "Medium", "High"], index=1, help="Higher volatility amplifies market impact.")
+    stock_market_payload = {"index_change_pct": float(idx_change), "volatility": volatility}
+
 # Run Simulation button + readable info (to the right)
 col_btn, col_info = st.columns([0.26, 1])
 with col_btn:
     if st.button("Run Simulation"):
-        result = run_simulation(query)
+        result = run_simulation(query, stock_market=stock_market_payload)
         st.session_state["result"] = result
 
 with col_info:
@@ -38,7 +52,7 @@ with col_info:
         """
         <div style="font-size:16px; color:#1f2937; background:#f4f6f8; padding:10px; border-radius:6px;">
         <strong>Note:</strong> Clicking <strong>Run Simulation</strong> automatically gathers required internal and external
-        operational, infrastructure, supply-chain, and market-risk data, then produces a tailored, end-to-end recommendation and roadmap.
+        operational, infrastructure, supply-chain, and market-risk data (demo assumptions), then produces a tailored, end-to-end recommendation and roadmap.
         </div>
         """,
         unsafe_allow_html=True
@@ -46,13 +60,13 @@ with col_info:
 
 st.markdown("---")
 
-# Results display (unchanged layout, clean formatting)
 if "result" in st.session_state:
     result = st.session_state["result"]
 
     rec = result["recommendation"]
     roadmap = result["roadmap"]
     rationale = result["rationale"]
+    stock_info = result.get("stock_market_assumptions", {})
 
     # Header metrics
     st.header("Recommendation")
@@ -68,6 +82,23 @@ if "result" in st.session_state:
     c5.metric("Confidence", f"{metrics['confidence_pct']}%")
 
     st.divider()
+
+    # Show stock market assumptions if used
+    if stock_info.get("applied"):
+        st.subheader("Stock Market Assumptions & Impact")
+        col_a, col_b = st.columns([1, 2])
+        with col_a:
+            st.markdown(f"- Index change: **{stock_info['index_change_pct']}%**")
+            st.markdown(f"- Volatility: **{stock_info['volatility']}**")
+        with col_b:
+            st.markdown("**Impact summary:**")
+            st.markdown(f"- Market shock index: **{stock_info['market_shock']}**")
+            st.markdown(f"- Margin down adjustment applied: **{stock_info['add_margin_down']:+.4f}**")
+            st.markdown(f"- Capex inflation adjustment applied: **{stock_info['add_capex_inflation']:+.4f}**")
+            st.markdown(f"- Confidence penalty applied: **{stock_info['confidence_penalty']} pts**")
+            st.markdown(f"- Reason: {stock_info['reason']}")
+
+        st.divider()
 
     # Key recommendations
     st.subheader("Key Recommendations")
@@ -132,74 +163,4 @@ if "result" in st.session_state:
     for b in rationale.get("bullets", []):
         st.markdown(f"- {b}")
 
-    st.divider()
-
-    # ============================
-    # Export Options box (NEW)
-    # ============================
-    st.header("Export & Deliverables")
-    st.markdown(
-        """
-        <div style="background:#f8fafc; padding:14px; border-radius:8px;">
-        <strong>Choose export formats</strong> — select one or more options below and click <em>Generate</em>.
-        <br><br>
-        <em>Available export types:</em>
-        <ul style="margin-top:6px;">
-          <li><strong>PDF</strong> — one-page executive summary (board-ready)</li>
-          <li><strong>Detailed Power BI report</strong> — deep-dive dataset and visuals for analysts</li>
-          <li><strong>Excel</strong> — full tabular export for further analysis</li>
-          <li><strong>Create process flow diagram</strong> — generate a process diagram of the simulation flow</li>
-        </ul>
-        <div style="margin-top:8px; color:#333;">
-        <strong>Note:</strong> This is a demo. Clicking <em>Generate</em> will not produce any files — it will only simulate the export action and confirm selection.
-        </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    # Interactive controls
-    col_a, col_b = st.columns([1, 1])
-    with col_a:
-        export_pdf = st.checkbox("PDF — Executive summary")
-        export_powerbi = st.checkbox("Power BI — Detailed report")
-    with col_b:
-        export_excel = st.checkbox("Excel — Full data export")
-        export_flow = st.checkbox("Create process flow diagram")
-
-    generate_clicked = st.button("Generate")
-
-    if generate_clicked:
-        # Build list of selected
-        selections = []
-        if export_pdf:
-            selections.append("PDF (Executive summary)")
-        if export_powerbi:
-            selections.append("Power BI (Detailed report)")
-        if export_excel:
-            selections.append("Excel (Full data)")
-        if export_flow:
-            selections.append("Process flow diagram")
-
-        if not selections:
-            st.warning("No export format selected. Please select at least one option before clicking Generate.")
-        else:
-            # Demo behavior: do not produce files — show a clear message
-            st.info(
-                "Demo mode — export simulation\n\n"
-                "You selected: " + ", ".join(selections) + ".\n\n"
-                "This is a demonstration environment. Exports are disabled in demo mode and no files will be produced. "
-                "In a production deployment, the system would generate the selected deliverables and provide download links here."
-            )
-            # Provide the uploaded Operational Flow doc path as reference (system will convert this path to a URL in your environment)
-            st.markdown(
-                """
-                **Reference file (uploaded):**  
-                [Operational Flow document](/mnt/data/Operational Flow.docx)
-                """,
-                unsafe_allow_html=True
-            )
-
-    st.success("If you need actual exports enabled, tell me which formats to enable and I will implement them.")
-
-# end of app.py
+    st.success("Complete recommendation and roadmap generated.")
